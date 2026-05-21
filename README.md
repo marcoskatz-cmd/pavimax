@@ -1,8 +1,8 @@
-# Asfalto en Frío — Panel
+# PAVIMAX — Panel
 
-Panel web para que el operario vea pedidos pendientes, los marque como entregados (con foto del remito) y registre la producción diaria. Lleva el control de stock automático.
+Panel web para que el operario vea pedidos pendientes de PAVIMAX (asfalto en frío embolsado), los marque como entregados (con foto del remito) y registre la producción diaria. Lleva el control de stock automático.
 
-- **App pública**: https://marcoskatz-cmd.github.io/asfalto/
+- **App pública**: https://marcoskatz-cmd.github.io/pavimax/
 - **Backend**: Google Sheets + Apps Script
 - **Fotos**: Google Drive
 

@@ -1,16 +1,16 @@
-# Setup del panel de Asfalto en Frío
+# Setup del panel PAVIMAX
 
 Sigue estos pasos UNA SOLA VEZ (Marcos, ~15 minutos).
 
 ## 1. Crear la planilla de Google
 
-1. Andá a https://sheets.new y nombrala **Asfalto**.
+1. Andá a https://sheets.new y nombrala **PAVIMAX**.
 2. Copiá el ID de la URL (el pedazo entre `/d/` y `/edit`):
    `https://docs.google.com/spreadsheets/d/`**`ESTE_ID`**`/edit`
 
 ## 2. Crear la carpeta de Drive para los remitos
 
-1. Andá a https://drive.google.com → Nuevo → Carpeta → llamala **Remitos Asfalto**.
+1. Andá a https://drive.google.com → Nuevo → Carpeta → llamala **PAVIMAX - Remitos**.
 2. Abrila y copiá el ID de la URL:
    `https://drive.google.com/drive/folders/`**`ESTE_ID`**
 
@@ -24,7 +24,7 @@ Sigue estos pasos UNA SOLA VEZ (Marcos, ~15 minutos).
    const FOLDER_ID = 'PEGAR_AQUI_EL_ID_DE_LA_CARPETA_REMITOS';
    ```
    con los IDs de los pasos 1 y 2.
-4. Guardá (Ctrl+S). Le ponés nombre al proyecto: **Asfalto Backend**.
+4. Guardá (Ctrl+S). Le ponés nombre al proyecto: **PAVIMAX Backend**.
 5. En el panel izquierdo abrí el archivo de manifest (`appsscript.json`) — si no aparece, andá a ⚙️ → "Mostrar archivo de manifiesto appsscript.json", y pegá el contenido de `appsscript.json` de este repo.
 
 ## 4. Crear las hojas con sus columnas
@@ -66,20 +66,20 @@ const CONFIG = {
 ## 8. Subir a GitHub Pages
 
 1. Andá a https://github.com/new
-2. Repository name: `asfalto`
+2. Repository name: `pavimax`
 3. Public, sin README, sin .gitignore, sin licencia (todo vacío).
 4. Crear.
-5. Desde esta carpeta (`C:\Users\Usuario\Downloads\asfalto\`):
+5. Desde esta carpeta (`C:\Users\Usuario\Downloads\pavimax\`):
    ```
    git init
    git add .
    git commit -m "init"
    git branch -M main
-   git remote add origin https://github.com/marcoskatz-cmd/asfalto.git
+   git remote add origin https://github.com/marcoskatz-cmd/pavimax.git
    git push -u origin main
    ```
 6. En el repo → **Settings → Pages** → Source: `Deploy from a branch`, Branch: `main` / `/ (root)`. Save.
-7. En 1-3 minutos el panel queda en: **https://marcoskatz-cmd.github.io/asfalto/**
+7. En 1-3 minutos el panel queda en: **https://marcoskatz-cmd.github.io/pavimax/**
 
 ## 9. Probar
 
@@ -93,13 +93,13 @@ const CONFIG = {
    - (resto en blanco)
 2. Abrí el panel en el celular del operario y se tiene que ver el pedido.
 3. Tocá ENTREGAR, sacá foto, confirmar → debería aparecer en ENTREGADOS y en la carpeta de Drive.
-4. Tocá el botón 🔔 sonido una vez para activar las notificaciones del navegador.
+4. En la vista "Pedidos", tocá el botón 🔔 sonido una vez para activar las notificaciones del navegador.
 
 ## Uso diario
 
 - **Oficina**: carga una fila por pedido en la planilla con estado=pendiente.
-- **Operario**: ve los pedidos en el panel, los marca como entregados con foto + observación, y carga la producción del día.
-- **Stock**: se recalcula solo. Lo ves desde la pestaña "Producción" del panel o abriendo la planilla directo.
+- **Operario**: ve los pedidos en el panel (botón **Pedidos**), los marca como entregados con foto + observación. La producción del día se carga desde el botón **Producción**.
+- **Stock**: se recalcula solo. Lo ves desde la vista "Producción" del panel o abriendo la planilla directo.
 
 ## Cambios después
 
