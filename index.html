@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f97316">
+<meta name="theme-color" content="#157f3d">
 <title>PAVIMAX</title>
+<link rel="icon" type="image/png" href="logo.png">
+<link rel="apple-touch-icon" href="logo.png">
 <style>
   :root {
     --bg: #f5f6f8;
@@ -13,9 +15,9 @@
     --text: #111827;
     --muted: #6b7280;
     --border: #e5e7eb;
-    --primary: #f97316;
-    --primary-dark: #ea580c;
-    --primary-soft: #fff7ed;
+    --primary: #157f3d;
+    --primary-dark: #0f5e2d;
+    --primary-soft: #e8f5ec;
     --ok: #16a34a;
     --ok-dark: #15803d;
     --warn: #dc2626;
@@ -42,7 +44,11 @@
     position: sticky; top: 0; z-index: 50;
   }
   header .brand {
-    flex: 1; font-size: 18px; font-weight: 800; letter-spacing: 1px; color: var(--primary-dark);
+    flex: 1; display: flex; align-items: center;
+  }
+  header .brand img { height: 26px; display: block; }
+  header .brand .brand-text {
+    font-size: 18px; font-weight: 800; letter-spacing: 1px; color: var(--primary-dark);
   }
   header .back {
     background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
@@ -54,10 +60,11 @@
 
   /* ===== Home ===== */
   .home-hero { text-align: center; padding: 22px 0 26px; }
+  .home-hero img { max-width: 260px; width: 75%; height: auto; display: block; margin: 0 auto; }
   .home-hero .logo {
     font-size: 36px; font-weight: 900; color: var(--primary-dark); letter-spacing: 3px;
   }
-  .home-hero .sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  .home-hero .sub { color: var(--muted); font-size: 14px; margin-top: 10px; }
 
   .home-btn {
     display: flex; align-items: center; gap: 16px;
@@ -257,7 +264,7 @@
 
 <header>
   <button class="back" id="backBtn" style="display:none">← Atrás</button>
-  <div class="brand">PAVIMAX</div>
+  <div class="brand"><img src="logo.png" alt="PAVIMAX" onerror="this.outerHTML='<span class=\'brand-text\'>PAVIMAX</span>'"></div>
   <button id="soundBtn" class="sound-toggle" style="display:none">🔔 sonido</button>
 </header>
 
@@ -266,7 +273,7 @@
   <!-- ============ HOME ============ -->
   <section id="view-home">
     <div class="home-hero">
-      <div class="logo">PAVIMAX</div>
+      <img src="logo.png" alt="PAVIMAX" onerror="this.outerHTML='<div class=&quot;logo&quot;>PAVIMAX</div>'">
       <div class="sub">Control de pedidos y stock</div>
     </div>
 
