@@ -5,8 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#157f3d">
 <title>PAVIMAX</title>
-<link rel="icon" type="image/png" href="logo.png">
-<link rel="apple-touch-icon" href="logo.png">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="PAVIMAX">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   :root {
     --bg: #f5f6f8;
@@ -380,8 +385,16 @@ const state = {
   pendientes: [], entregados: [], stock: {},
   knownIds: new Set(), firstLoad: true,
   soundOn: false,
-  modalId: null, fotoB64: null, fotoMime: 'image/jpeg'
+  modalId: null, fotoB64: null, fotoMime: 'image/jpeg',
+  swReg: null
 };
+
+/* ===== PWA: registrar service worker ===== */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js')
+    .then(reg => { state.swReg = reg; })
+    .catch(() => {});
+}
 
 /* ===== INIT ===== */
 document.getElementById('linkSheet').href = CONFIG.SHEET_URL;
@@ -427,9 +440,9 @@ function toggleSound() {
   btn.classList.toggle('on', state.soundOn);
   btn.textContent = state.soundOn ? '🔔 sonido ON' : '🔔 sonido';
   if (state.soundOn) {
-    beep(440, 80);
+    try { beep(440, 80); } catch (_) {}
     if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
+      Notification.requestPermission().catch(() => {});
     }
   }
 }
@@ -450,15 +463,28 @@ function beep(freq, ms) {
 }
 
 function notifyNewOrder(p) {
+  // Sonido (no debe romper si Audio falla)
   if (state.soundOn) {
-    beep(880, 150);
-    setTimeout(() => beep(1100, 200), 180);
+    try { beep(880, 150); setTimeout(() => beep(1100, 200), 180); } catch (_) {}
   }
-  if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification('Nuevo pedido — PAVIMAX', {
-      body: `${p.cliente} — ${p.cantidad_bolsas} bolsas${p.observacion_pedido ? ' · ' + p.observacion_pedido : ''}`,
-      tag: 'pedido-' + p.id
-    });
+  // Notificación visual — preferir Service Worker (requerido en Chrome Android moderno)
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const title = 'Nuevo pedido — PAVIMAX';
+  const opts = {
+    body: `${p.cliente} — ${p.cantidad_bolsas} bolsas${p.observacion_pedido ? ' · ' + p.observacion_pedido : ''}`,
+    icon: 'icon-192.png',
+    badge: 'icon-192.png',
+    tag: 'pedido-' + p.id
+  };
+  try {
+    if (state.swReg && state.swReg.showNotification) {
+      state.swReg.showNotification(title, opts);
+    } else {
+      new Notification(title, opts);
+    }
+  } catch (_) {
+    // En Chrome Android sin SW falla con "Illegal constructor" — lo silenciamos
+    // para no romper el polling.
   }
 }
 
@@ -476,7 +502,11 @@ async function fetchAll() {
     const ped  = j.data.pendientes || [];
     const ids  = new Set(ped.map(p => String(p.id)));
     if (!state.firstLoad) {
-      ped.forEach(p => { if (!prev.has(String(p.id))) notifyNewOrder(p); });
+      ped.forEach(p => {
+        if (!prev.has(String(p.id))) {
+          try { notifyNewOrder(p); } catch (_) { /* nunca debe romper el ciclo */ }
+        }
+      });
     }
     state.pendientes = ped;
     state.entregados = j.data.entregados || [];
