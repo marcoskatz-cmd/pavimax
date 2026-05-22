@@ -1,5 +1,5 @@
 /* PAVIMAX service worker — habilita PWA + notificaciones desde SW. */
-const CACHE = 'pavimax-v3';
+const CACHE = 'pavimax-v4';
 const ASSETS = [
   './',
   './index.html',

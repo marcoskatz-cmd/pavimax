@@ -43,6 +43,7 @@ function doGet(e) {
     else if (action === 'entregados') data = { entregados: getEntregados() };
     else if (action === 'stock')      data = { stock: getStock() };
     else if (action === 'ganancias')  data = { ganancias: getGanancias() };
+    else if (action === 'produccion') data = { produccion: getProduccion() };
     else                              data = getAll();
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -76,8 +77,27 @@ function getAll() {
     pendientes: getPendientes(),
     entregados: getEntregados(),
     stock:      getStock(),
-    ganancias:  getGanancias()
+    ganancias:  getGanancias(),
+    produccion: getProduccion()
   };
+}
+
+// Últimas 5 cargas de producción, más recientes primero
+function getProduccion() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName(SH_PRODUCCION);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const values = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+  return values
+    .filter(row => row[0])
+    .map(([fecha, cantidad]) => ({
+      fecha: fmt(fecha),
+      _ts: fecha instanceof Date ? fecha.getTime() : 0,
+      cantidad: Number(cantidad) || 0
+    }))
+    .sort((a, b) => b._ts - a._ts)
+    .slice(0, 5)
+    .map(r => { delete r._ts; return r; });
 }
 
 function getPendientes() {

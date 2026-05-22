@@ -101,15 +101,36 @@
   }
   .home-btn .badge.hidden { display: none; }
 
-  .home-links {
-    display: flex; gap: 8px; justify-content: center; margin-top: 20px;
+  /* ===== Instrucciones home ===== */
+  .help-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 18px 14px;
+    margin-top: 20px; box-shadow: var(--shadow);
   }
-  .home-links a {
-    color: var(--muted); text-decoration: none; font-size: 13px;
-    padding: 8px 14px; border: 1px solid var(--border);
-    background: var(--surface); border-radius: 8px;
+  .help-card .help-title {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--primary-dark); font-weight: 800; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
   }
-  .home-links a:active { background: var(--surface-2); }
+  .help-card ol {
+    margin: 0; padding-left: 22px; color: var(--text);
+    font-size: 14px; line-height: 1.55;
+  }
+  .help-card li { margin-bottom: 10px; }
+  .help-card li:last-child { margin-bottom: 0; }
+  .help-card strong { color: var(--primary-dark); }
+
+  /* ===== Lista de últimas cargas de producción ===== */
+  .prod-list-row {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
+  }
+  .prod-list-row .fecha { color: var(--muted); font-size: 13px; }
+  .prod-list-row .cant  {
+    font-weight: 800; color: var(--primary-dark); font-size: 16px;
+  }
+  .prod-list-row .cant small { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px; }
 
   /* ===== Section titles ===== */
   .section-title {
@@ -286,7 +307,7 @@
       <div class="icon">📦</div>
       <div class="label">
         <div class="title">Pedidos</div>
-        <div class="desc">Ver pendientes y registrar entregas</div>
+        <div class="desc">Ver lo que hay para entregar</div>
       </div>
       <div class="badge hidden" id="homePendBadge">0</div>
     </button>
@@ -295,13 +316,18 @@
       <div class="icon">🏭</div>
       <div class="label">
         <div class="title">Producción</div>
-        <div class="desc">Cargar producción y ver stock</div>
+        <div class="desc">Cargar bolsas producidas y ver stock</div>
       </div>
     </button>
 
-    <div class="home-links">
-      <a id="linkSheet" href="#" target="_blank">📋 Planilla</a>
-      <a id="linkDrive" href="#" target="_blank">📁 Remitos</a>
+    <div class="help-card">
+      <div class="help-title">💡 Cómo usar</div>
+      <ol>
+        <li>Tocá <strong>Pedidos</strong> para ver lo pendiente. Cuando lo entregues, sacá foto del remito y tocá <strong>ENTREGAR</strong>.</li>
+        <li>Activá el aviso de pedidos nuevos tocando <strong>🔔 sonido</strong> arriba (una sola vez por sesión). Vas a escuchar un beep y aparecerá una notificación cada vez que llegue un pedido nuevo.</li>
+        <li>Al final del día, andá a <strong>Producción</strong> y cargá cuántas bolsas hiciste.</li>
+        <li>Los remitos de cada entrega quedan en cada pedido entregado — tocá <strong>Ver remito ↗</strong>.</li>
+      </ol>
     </div>
   </section>
 
@@ -327,15 +353,14 @@
     <div class="section-title">Producción del día</div>
     <div class="form-card">
       <div class="field">
-        <label>Bolsas producidas hoy</label>
+        <label>Bolsas producidas</label>
         <input type="number" id="prodCantidad" inputmode="numeric" min="1" placeholder="ej. 120">
-      </div>
-      <div class="field">
-        <label>Operario (opcional)</label>
-        <input type="text" id="prodOperario" placeholder="Nombre">
       </div>
       <button class="btn btn-ok" id="prodBtn">Guardar producción</button>
     </div>
+
+    <div class="section-title">Últimas cargas</div>
+    <div id="produccionList"></div>
   </section>
 
 </main>
@@ -382,7 +407,7 @@ const CONFIG = {
 /* ===== STATE ===== */
 const state = {
   view: 'home',
-  pendientes: [], entregados: [], stock: {},
+  pendientes: [], entregados: [], stock: {}, produccion: [],
   knownIds: new Set(), firstLoad: true,
   soundOn: false,
   modalId: null, fotoB64: null, fotoMime: 'image/jpeg',
@@ -397,9 +422,6 @@ if ('serviceWorker' in navigator) {
 }
 
 /* ===== INIT ===== */
-document.getElementById('linkSheet').href = CONFIG.SHEET_URL;
-document.getElementById('linkDrive').href = CONFIG.DRIVE_URL;
-
 document.querySelectorAll('[data-go]').forEach(b => {
   b.addEventListener('click', () => goTo(b.dataset.go));
 });
@@ -511,6 +533,7 @@ async function fetchAll() {
     state.pendientes = ped;
     state.entregados = j.data.entregados || [];
     state.stock      = j.data.stock || {};
+    state.produccion = j.data.produccion || [];
     state.knownIds   = ids;
     state.firstLoad  = false;
     render();
@@ -550,6 +573,22 @@ function render() {
   document.getElementById('stockProd').textContent = fmtNum(state.stock.total_producido);
   document.getElementById('stockVen').textContent  = fmtNum(state.stock.total_vendido);
   document.getElementById('stockAct').textContent  = fmtNum(state.stock.stock_actual);
+
+  // Lista de últimas cargas de producción
+  const pl = document.getElementById('produccionList');
+  pl.innerHTML = '';
+  if (state.produccion.length === 0) {
+    pl.innerHTML = '<div class="empty">Todavía no cargaste producción</div>';
+  } else {
+    state.produccion.forEach(p => {
+      const el = document.createElement('div');
+      el.className = 'prod-list-row';
+      el.innerHTML = '<span class="fecha"></span><span class="cant"><span class="qty"></span><small> bolsas</small></span>';
+      el.querySelector('.fecha').textContent = p.fecha || '';
+      el.querySelector('.qty').textContent = fmtNum(p.cantidad);
+      pl.appendChild(el);
+    });
+  }
 }
 
 function cardPendiente(p) {
@@ -698,13 +737,12 @@ async function confirmarEntrega() {
 /* ===== PRODUCCIÓN ===== */
 async function guardarProduccion() {
   const inp = document.getElementById('prodCantidad');
-  const op  = document.getElementById('prodOperario');
   const cant = Number(inp.value);
   if (!cant || cant <= 0) { toast('Cantidad inválida', 'err'); return; }
   const btn = document.getElementById('prodBtn');
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
-    const r = await postAction({ action: 'producir', cantidad: cant, operario: op.value.trim() });
+    const r = await postAction({ action: 'producir', cantidad: cant });
     if (!r.ok) throw new Error(r.error || 'error');
     toast('Producción registrada ✓', 'ok');
     inp.value = '';
