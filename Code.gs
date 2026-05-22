@@ -1,7 +1,6 @@
 /**
- * Backend del panel de Asfalto en Frío.
- * Lee/escribe en la planilla "Asfalto" y guarda fotos de remitos
- * en la carpeta de Drive "Remitos Asfalto".
+ * Backend del panel PAVIMAX.
+ * Lee/escribe en la planilla "PAVIMAX" y guarda fotos de remitos en Drive.
  *
  * Desplegar como Web App:
  *   Ejecutar como: yo (Marcos)
@@ -17,6 +16,9 @@ const FOLDER_ID = 'PEGAR_AQUI_EL_ID_DE_LA_CARPETA_REMITOS';
 const SH_PEDIDOS    = 'PEDIDOS';
 const SH_PRODUCCION = 'PRODUCCION';
 const SH_STOCK      = 'STOCK';
+const SH_CLIENTES   = 'CLIENTES';
+const SH_PRODUCTO   = 'PRODUCTO';
+const SH_GANANCIAS  = 'GANANCIAS';
 
 // === HTTP ===
 function doGet(e) {
@@ -26,6 +28,7 @@ function doGet(e) {
     if (action === 'pendientes')      data = { pendientes: getPendientes() };
     else if (action === 'entregados') data = { entregados: getEntregados() };
     else if (action === 'stock')      data = { stock: getStock() };
+    else if (action === 'ganancias')  data = { ganancias: getGanancias() };
     else                              data = getAll();
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -58,7 +61,8 @@ function getAll() {
   return {
     pendientes: getPendientes(),
     entregados: getEntregados(),
-    stock:      getStock()
+    stock:      getStock(),
+    ganancias:  getGanancias()
   };
 }
 
@@ -77,7 +81,6 @@ function getPendientes() {
 
 function getEntregados() {
   const rows = readSheet(SH_PEDIDOS);
-  const hoyIso = new Date().toISOString().slice(0, 10);
   return rows
     .filter(r => String(r.estado || '').toLowerCase() === 'entregado')
     .map(r => ({
@@ -90,45 +93,21 @@ function getEntregados() {
       link_remito: r.link_remito || '',
       _fecha_iso: r.fecha_entrega ? new Date(r.fecha_entrega).toISOString().slice(0, 10) : ''
     }))
-    // mostrar entregados de hoy primero, después los de días anteriores; máximo 50
     .sort((a, b) => (b._fecha_iso || '').localeCompare(a._fecha_iso || ''))
     .slice(0, 50)
     .map(r => { delete r._fecha_iso; return r; });
 }
 
 function getStock() {
-  // Calculamos todo en JS y escribimos B2/B3/B4 en la hoja
-  // (así no depende de fórmulas locale-dependent de Sheets)
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const stockSh = ss.getSheetByName(SH_STOCK);
   if (!stockSh) throw new Error('Falta hoja STOCK');
 
   const inicial = Number(stockSh.getRange('B1').getValue()) || 0;
+  const producido = sumProducido_();
+  const vendido   = sumVendido_();
+  const actual    = inicial + producido - vendido;
 
-  // Sumar PRODUCCION!B (bolsas_producidas)
-  const prodSh = ss.getSheetByName(SH_PRODUCCION);
-  let producido = 0;
-  if (prodSh && prodSh.getLastRow() >= 2) {
-    const v = prodSh.getRange(2, 2, prodSh.getLastRow() - 1, 1).getValues();
-    v.forEach(([n]) => { producido += Number(n) || 0; });
-  }
-
-  // Sumar cantidad_bolsas de PEDIDOS con estado=entregado
-  // Columnas PEDIDOS: A=id B=fecha_carga C=cliente D=cantidad_bolsas E=obs_pedido F=estado
-  const pedSh = ss.getSheetByName(SH_PEDIDOS);
-  let vendido = 0;
-  if (pedSh && pedSh.getLastRow() >= 2) {
-    const v = pedSh.getRange(2, 1, pedSh.getLastRow() - 1, 6).getValues();
-    v.forEach(row => {
-      if (String(row[5]).toLowerCase() === 'entregado') {
-        vendido += Number(row[3]) || 0;
-      }
-    });
-  }
-
-  const actual = inicial + producido - vendido;
-
-  // Reflejar en la hoja para que se pueda ver desde Drive
   stockSh.getRange('B2:B4').setValues([[producido], [vendido], [actual]]);
 
   return {
@@ -136,6 +115,45 @@ function getStock() {
     total_producido: producido,
     total_vendido:   vendido,
     stock_actual:    actual
+  };
+}
+
+function getGanancias() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const prodSh = ss.getSheetByName(SH_PRODUCTO);
+  const ganSh  = ss.getSheetByName(SH_GANANCIAS);
+  if (!prodSh || !ganSh) {
+    return { error: 'Faltan hojas PRODUCTO o GANANCIAS — corré initSheets() una vez' };
+  }
+
+  // Costos por bolsa: B2..B5 (materia prima, mano de obra, envase, otros)
+  const costos = prodSh.getRange('B2:B5').getValues();
+  let costoUnit = 0;
+  costos.forEach(([n]) => { costoUnit += Number(n) || 0; });
+  prodSh.getRange('B6').setValue(costoUnit);  // total costo / bolsa
+  const precioUnit = Number(prodSh.getRange('B7').getValue()) || 0;
+
+  const producido = sumProducido_();
+  const vendido   = sumVendido_();
+
+  const costoTotal = producido * costoUnit;
+  const ingresos   = vendido   * precioUnit;
+  const ganancia   = ingresos - costoTotal;
+  const margen     = ingresos > 0 ? Math.round(ganancia / ingresos * 1000) / 10 : 0;
+
+  ganSh.getRange('B2:B7').setValues([
+    [producido], [vendido], [costoTotal], [ingresos], [ganancia], [margen]
+  ]);
+
+  return {
+    bolsas_producidas: producido,
+    bolsas_vendidas:   vendido,
+    costo_unitario:    costoUnit,
+    precio_unitario:   precioUnit,
+    costo_total:       costoTotal,
+    ingresos:          ingresos,
+    ganancia_bruta:    ganancia,
+    margen_pct:        margen
   };
 }
 
@@ -195,7 +213,67 @@ function registrarProduccion(body) {
   return { fecha: new Date().toISOString(), cantidad, operario };
 }
 
-// === UTILIDADES ===
+// === SIMPLE TRIGGER ===
+// Auto-completa id, fecha_carga y estado cuando alguien escribe en la columna
+// cliente (C) de una fila nueva de PEDIDOS. NO requiere instalar trigger — se
+// dispara solo al editar la planilla.
+function onEdit(e) {
+  try {
+    const sh = e.range.getSheet();
+    if (sh.getName() !== SH_PEDIDOS) return;
+    if (e.range.getColumn() !== 3) return; // C = cliente
+    const row = e.range.getRow();
+    if (row < 2) return;
+    if (e.value === undefined || e.value === '') return;
+
+    const idCell     = sh.getRange(row, 1);
+    const fechaCell  = sh.getRange(row, 2);
+    const estadoCell = sh.getRange(row, 6);
+
+    if (!idCell.getValue()) {
+      // Próximo id = max + 1 sobre todos los ids existentes
+      const last = sh.getLastRow();
+      let maxId = 0;
+      if (last >= 2) {
+        const ids = sh.getRange(2, 1, last - 1, 1).getValues();
+        ids.forEach(([v]) => {
+          const n = Number(v);
+          if (!isNaN(n) && n > maxId) maxId = n;
+        });
+      }
+      idCell.setValue(maxId + 1);
+    }
+    if (!fechaCell.getValue()) fechaCell.setValue(new Date());
+    if (!estadoCell.getValue()) estadoCell.setValue('pendiente');
+  } catch (_) { /* silenciado */ }
+}
+
+// === HELPERS ===
+function sumProducido_() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const prodSh = ss.getSheetByName(SH_PRODUCCION);
+  if (!prodSh || prodSh.getLastRow() < 2) return 0;
+  let total = 0;
+  prodSh.getRange(2, 2, prodSh.getLastRow() - 1, 1).getValues()
+    .forEach(([n]) => { total += Number(n) || 0; });
+  return total;
+}
+
+function sumVendido_() {
+  // Columnas PEDIDOS: A=id B=fecha_carga C=cliente D=cantidad_bolsas E=obs_pedido F=estado
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const pedSh = ss.getSheetByName(SH_PEDIDOS);
+  if (!pedSh || pedSh.getLastRow() < 2) return 0;
+  let total = 0;
+  pedSh.getRange(2, 1, pedSh.getLastRow() - 1, 6).getValues()
+    .forEach(row => {
+      if (String(row[5]).toLowerCase() === 'entregado') {
+        total += Number(row[3]) || 0;
+      }
+    });
+  return total;
+}
+
 function readSheet(name) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sh = ss.getSheetByName(name);
@@ -220,20 +298,25 @@ function fmt(d) {
   return String(d);
 }
 
-// === HELPER: ejecutar una vez para crear las hojas con headers correctos ===
+// === INIT: ejecutar una vez para crear/actualizar las hojas ===
 function initSheets() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const ensure = (name, headers) => {
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name);
     if (sh.getLastRow() === 0) sh.appendRow(headers);
+    return sh;
   };
+
+  // PEDIDOS, PRODUCCION
   ensure(SH_PEDIDOS, [
     'id', 'fecha_carga', 'cliente', 'cantidad_bolsas',
     'observacion_pedido', 'estado', 'fecha_entrega',
     'observacion_entrega', 'link_remito'
   ]);
   ensure(SH_PRODUCCION, ['fecha', 'bolsas_producidas', 'operario']);
+
+  // STOCK
   let stock = ss.getSheetByName(SH_STOCK);
   if (!stock) stock = ss.insertSheet(SH_STOCK);
   if (stock.getLastRow() === 0) {
@@ -244,4 +327,55 @@ function initSheets() {
       ['stock_actual',    0]
     ]);
   }
+
+  // CLIENTES
+  ensure(SH_CLIENTES, ['nombre', 'telefono', 'notas']);
+
+  // PRODUCTO (costos por bolsa + precio venta)
+  let prod = ss.getSheetByName(SH_PRODUCTO);
+  if (!prod) prod = ss.insertSheet(SH_PRODUCTO);
+  if (prod.getLastRow() === 0) {
+    prod.getRange('A1:B7').setValues([
+      ['concepto',         'valor por bolsa ($)'],
+      ['materia_prima',    0],
+      ['mano_de_obra',     0],
+      ['envase',           0],
+      ['otros',            0],
+      ['costo_total',      0],   // calculado por getGanancias()
+      ['precio_venta',     0]
+    ]);
+  }
+
+  // GANANCIAS (totales)
+  let gan = ss.getSheetByName(SH_GANANCIAS);
+  if (!gan) gan = ss.insertSheet(SH_GANANCIAS);
+  if (gan.getLastRow() === 0) {
+    gan.getRange('A1:B7').setValues([
+      ['concepto',          'valor'],
+      ['bolsas_producidas', 0],
+      ['bolsas_vendidas',   0],
+      ['costo_total',       0],
+      ['ingresos',          0],
+      ['ganancia_bruta',    0],
+      ['margen_%',          0]
+    ]);
+  }
+
+  applyClientesValidation_();
+}
+
+// Aplica el dropdown de clientes a la columna C (cliente) de PEDIDOS,
+// usando como fuente CLIENTES!A2:A. Permite tipear nombres nuevos (allowInvalid).
+function applyClientesValidation_() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const pedidos  = ss.getSheetByName(SH_PEDIDOS);
+  const clientes = ss.getSheetByName(SH_CLIENTES);
+  if (!pedidos || !clientes) return;
+
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInRange(clientes.getRange('A2:A'), true)
+    .setAllowInvalid(true)
+    .build();
+  const maxRows = Math.max(pedidos.getMaxRows() - 1, 1000);
+  pedidos.getRange(2, 3, maxRows, 1).setDataValidation(rule);
 }
