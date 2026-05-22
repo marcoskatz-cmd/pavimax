@@ -20,6 +20,20 @@ const SH_CLIENTES   = 'CLIENTES';
 const SH_PRODUCTO   = 'PRODUCTO';
 const SH_GANANCIAS  = 'GANANCIAS';
 
+// === ESTILO ===
+const COLOR_BRAND       = '#157f3d';
+const COLOR_BRAND_DARK  = '#0f5e2d';
+const COLOR_BRAND_SOFT  = '#e8f5ec';
+const COLOR_HEADER_TXT  = '#ffffff';
+const COLOR_LABEL_BG    = '#f5f6f8';
+const COLOR_HILITE_BG   = '#d1fae5';
+const COLOR_HILITE_TXT  = '#0f5e2d';
+const COLOR_BORDER      = '#d1d5db';
+const COLOR_PEND_BG     = '#fef3c7';
+const COLOR_PEND_TXT    = '#92400e';
+const COLOR_ENTR_BG     = '#d1fae5';
+const COLOR_ENTR_TXT    = '#065f46';
+
 // === HTTP ===
 function doGet(e) {
   try {
@@ -98,17 +112,18 @@ function getEntregados() {
     .map(r => { delete r._fecha_iso; return r; });
 }
 
+// STOCK layout: row 1 = header ("Concepto", "Bolsas"), row 2..5 = data
 function getStock() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const stockSh = ss.getSheetByName(SH_STOCK);
   if (!stockSh) throw new Error('Falta hoja STOCK');
 
-  const inicial = Number(stockSh.getRange('B1').getValue()) || 0;
+  const inicial   = Number(stockSh.getRange('B2').getValue()) || 0;
   const producido = sumProducido_();
   const vendido   = sumVendido_();
   const actual    = inicial + producido - vendido;
 
-  stockSh.getRange('B2:B4').setValues([[producido], [vendido], [actual]]);
+  stockSh.getRange('B3:B5').setValues([[producido], [vendido], [actual]]);
 
   return {
     stock_inicial:   inicial,
@@ -118,6 +133,8 @@ function getStock() {
   };
 }
 
+// PRODUCTO layout: row 1 header, rows 2-5 costos, row 6 costo total (calc), row 7 precio
+// GANANCIAS layout: row 1 header, rows 2-7 datos
 function getGanancias() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const prodSh = ss.getSheetByName(SH_PRODUCTO);
@@ -126,11 +143,10 @@ function getGanancias() {
     return { error: 'Faltan hojas PRODUCTO o GANANCIAS — corré initSheets() una vez' };
   }
 
-  // Costos por bolsa: B2..B5 (materia prima, mano de obra, envase, otros)
   const costos = prodSh.getRange('B2:B5').getValues();
   let costoUnit = 0;
   costos.forEach(([n]) => { costoUnit += Number(n) || 0; });
-  prodSh.getRange('B6').setValue(costoUnit);  // total costo / bolsa
+  prodSh.getRange('B6').setValue(costoUnit);
   const precioUnit = Number(prodSh.getRange('B7').getValue()) || 0;
 
   const producido = sumProducido_();
@@ -215,13 +231,12 @@ function registrarProduccion(body) {
 
 // === SIMPLE TRIGGER ===
 // Auto-completa id, fecha_carga y estado cuando alguien escribe en la columna
-// cliente (C) de una fila nueva de PEDIDOS. NO requiere instalar trigger — se
-// dispara solo al editar la planilla.
+// cliente (C) de una fila nueva de PEDIDOS. NO requiere instalar trigger.
 function onEdit(e) {
   try {
     const sh = e.range.getSheet();
     if (sh.getName() !== SH_PEDIDOS) return;
-    if (e.range.getColumn() !== 3) return; // C = cliente
+    if (e.range.getColumn() !== 3) return;
     const row = e.range.getRow();
     if (row < 2) return;
     if (e.value === undefined || e.value === '') return;
@@ -231,7 +246,6 @@ function onEdit(e) {
     const estadoCell = sh.getRange(row, 6);
 
     if (!idCell.getValue()) {
-      // Próximo id = max + 1 sobre todos los ids existentes
       const last = sh.getLastRow();
       let maxId = 0;
       if (last >= 2) {
@@ -260,7 +274,6 @@ function sumProducido_() {
 }
 
 function sumVendido_() {
-  // Columnas PEDIDOS: A=id B=fecha_carga C=cliente D=cantidad_bolsas E=obs_pedido F=estado
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const pedSh = ss.getSheetByName(SH_PEDIDOS);
   if (!pedSh || pedSh.getLastRow() < 2) return 0;
@@ -298,74 +311,117 @@ function fmt(d) {
   return String(d);
 }
 
-// === INIT: ejecutar una vez para crear/actualizar las hojas ===
+// =============================================================
+// INIT + MIGRACIÓN + FORMATO VISUAL
+// Ejecutá `initSheets` UNA VEZ después de pegar este archivo. Es
+// idempotente: respeta los datos existentes y migra los layouts
+// viejos (snake_case sin header) al nuevo (header + labels pretty).
+// =============================================================
 function initSheets() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  const ensure = (name, headers) => {
-    let sh = ss.getSheetByName(name);
-    if (!sh) sh = ss.insertSheet(name);
-    if (sh.getLastRow() === 0) sh.appendRow(headers);
-    return sh;
-  };
 
-  // PEDIDOS, PRODUCCION
-  ensure(SH_PEDIDOS, [
-    'id', 'fecha_carga', 'cliente', 'cantidad_bolsas',
-    'observacion_pedido', 'estado', 'fecha_entrega',
-    'observacion_entrega', 'link_remito'
-  ]);
-  ensure(SH_PRODUCCION, ['fecha', 'bolsas_producidas', 'operario']);
+  // --- PEDIDOS ---
+  let ped = ss.getSheetByName(SH_PEDIDOS);
+  if (!ped) {
+    ped = ss.insertSheet(SH_PEDIDOS);
+    ped.appendRow([
+      'id', 'fecha_carga', 'cliente', 'cantidad_bolsas',
+      'observacion_pedido', 'estado', 'fecha_entrega',
+      'observacion_entrega', 'link_remito'
+    ]);
+  }
 
-  // STOCK
+  // --- PRODUCCION ---
+  let prodLog = ss.getSheetByName(SH_PRODUCCION);
+  if (!prodLog) {
+    prodLog = ss.insertSheet(SH_PRODUCCION);
+    prodLog.appendRow(['fecha', 'bolsas_producidas', 'operario']);
+  }
+
+  // --- CLIENTES ---
+  let cli = ss.getSheetByName(SH_CLIENTES);
+  if (!cli) {
+    cli = ss.insertSheet(SH_CLIENTES);
+    cli.appendRow(['nombre', 'telefono', 'notas']);
+  }
+
+  // --- STOCK (con migración de layout viejo) ---
   let stock = ss.getSheetByName(SH_STOCK);
-  if (!stock) stock = ss.insertSheet(SH_STOCK);
-  if (stock.getLastRow() === 0) {
-    stock.getRange('A1:B4').setValues([
-      ['stock_inicial',   0],
-      ['total_producido', 0],
-      ['total_vendido',   0],
-      ['stock_actual',    0]
+  if (!stock) {
+    stock = ss.insertSheet(SH_STOCK);
+    stock.getRange('A1:B5').setValues([
+      ['Concepto',        'Bolsas'],
+      ['Stock inicial',   0],
+      ['Total producido', 0],
+      ['Total vendido',   0],
+      ['Stock actual',    0]
     ]);
+  } else {
+    // Migrar si A1 contiene un label en vez de header
+    const a1 = String(stock.getRange('A1').getValue()).toLowerCase().trim();
+    if (a1 === 'stock_inicial' || a1 === '') {
+      stock.insertRowBefore(1);
+    }
+    stock.getRange('A1:B1').setValues([['Concepto', 'Bolsas']]);
+    stock.getRange('A2').setValue('Stock inicial');
+    stock.getRange('A3').setValue('Total producido');
+    stock.getRange('A4').setValue('Total vendido');
+    stock.getRange('A5').setValue('Stock actual');
   }
 
-  // CLIENTES
-  ensure(SH_CLIENTES, ['nombre', 'telefono', 'notas']);
-
-  // PRODUCTO (costos por bolsa + precio venta)
+  // --- PRODUCTO ---
   let prod = ss.getSheetByName(SH_PRODUCTO);
-  if (!prod) prod = ss.insertSheet(SH_PRODUCTO);
-  if (prod.getLastRow() === 0) {
+  if (!prod) {
+    prod = ss.insertSheet(SH_PRODUCTO);
     prod.getRange('A1:B7').setValues([
-      ['concepto',         'valor por bolsa ($)'],
-      ['materia_prima',    0],
-      ['mano_de_obra',     0],
-      ['envase',           0],
-      ['otros',            0],
-      ['costo_total',      0],   // calculado por getGanancias()
-      ['precio_venta',     0]
+      ['Concepto',         'Valor por bolsa ($)'],
+      ['Materia prima',    0],
+      ['Mano de obra',     0],
+      ['Envase',           0],
+      ['Otros',            0],
+      ['Costo total',      0],
+      ['Precio de venta',  0]
     ]);
+  } else {
+    // Pretty labels (en caso de versión vieja con snake_case)
+    prod.getRange('A1:B1').setValues([['Concepto', 'Valor por bolsa ($)']]);
+    const pretty = ['Materia prima', 'Mano de obra', 'Envase', 'Otros', 'Costo total', 'Precio de venta'];
+    pretty.forEach((label, i) => prod.getRange(2 + i, 1).setValue(label));
   }
 
-  // GANANCIAS (totales)
+  // --- GANANCIAS ---
   let gan = ss.getSheetByName(SH_GANANCIAS);
-  if (!gan) gan = ss.insertSheet(SH_GANANCIAS);
-  if (gan.getLastRow() === 0) {
+  if (!gan) {
+    gan = ss.insertSheet(SH_GANANCIAS);
     gan.getRange('A1:B7').setValues([
-      ['concepto',          'valor'],
-      ['bolsas_producidas', 0],
-      ['bolsas_vendidas',   0],
-      ['costo_total',       0],
-      ['ingresos',          0],
-      ['ganancia_bruta',    0],
-      ['margen_%',          0]
+      ['Concepto',           'Valor'],
+      ['Bolsas producidas',  0],
+      ['Bolsas vendidas',    0],
+      ['Costo total ($)',    0],
+      ['Ingresos ($)',       0],
+      ['Ganancia bruta ($)', 0],
+      ['Margen (%)',         0]
     ]);
+  } else {
+    gan.getRange('A1:B1').setValues([['Concepto', 'Valor']]);
+    const pretty = ['Bolsas producidas','Bolsas vendidas','Costo total ($)','Ingresos ($)','Ganancia bruta ($)','Margen (%)'];
+    pretty.forEach((label, i) => gan.getRange(2 + i, 1).setValue(label));
   }
+
+  // Reordenar las hojas (de izq a der: las dashboards primero)
+  reorderSheets_(ss, [SH_STOCK, SH_GANANCIAS, SH_PEDIDOS, SH_PRODUCCION, SH_CLIENTES, SH_PRODUCTO]);
 
   applyClientesValidation_();
+  applyFormatting_();
 }
 
-// Aplica el dropdown de clientes a la columna C (cliente) de PEDIDOS,
-// usando como fuente CLIENTES!A2:A. Permite tipear nombres nuevos (allowInvalid).
+function reorderSheets_(ss, order) {
+  order.forEach((name, idx) => {
+    const sh = ss.getSheetByName(name);
+    if (sh) { ss.setActiveSheet(sh); ss.moveActiveSheet(idx + 1); }
+  });
+}
+
 function applyClientesValidation_() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const pedidos  = ss.getSheetByName(SH_PEDIDOS);
@@ -378,4 +434,202 @@ function applyClientesValidation_() {
     .build();
   const maxRows = Math.max(pedidos.getMaxRows() - 1, 1000);
   pedidos.getRange(2, 3, maxRows, 1).setDataValidation(rule);
+}
+
+// === FORMATO VISUAL ===
+function applyFormatting_() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+
+  // PEDIDOS
+  const ped = ss.getSheetByName(SH_PEDIDOS);
+  if (ped) {
+    formatList_(ped, {
+      cols: 9,
+      widths: [60, 150, 200, 130, 220, 110, 150, 220, 200],
+      headerHeight: 36,
+      rowHeight: 28,
+      numberCols: [4],
+      dateCols: [2, 7]
+    });
+    // Conditional formatting en estado (col F)
+    const estadoRange = ped.getRange(2, 6, ped.getMaxRows() - 1, 1);
+    const rulePend = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo('pendiente')
+      .setBackground(COLOR_PEND_BG).setFontColor(COLOR_PEND_TXT).setBold(true)
+      .setRanges([estadoRange]).build();
+    const ruleEntr = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo('entregado')
+      .setBackground(COLOR_ENTR_BG).setFontColor(COLOR_ENTR_TXT).setBold(true)
+      .setRanges([estadoRange]).build();
+    ped.setConditionalFormatRules([rulePend, ruleEntr]);
+    // Centrar estado e id
+    ped.getRange(2, 1, ped.getMaxRows() - 1, 1).setHorizontalAlignment('center');
+    ped.getRange(2, 6, ped.getMaxRows() - 1, 1).setHorizontalAlignment('center');
+    ped.getRange(2, 4, ped.getMaxRows() - 1, 1).setHorizontalAlignment('right');
+  }
+
+  // PRODUCCION
+  const prodLog = ss.getSheetByName(SH_PRODUCCION);
+  if (prodLog) {
+    formatList_(prodLog, {
+      cols: 3,
+      widths: [180, 180, 220],
+      headerHeight: 36, rowHeight: 28,
+      numberCols: [2], dateCols: [1]
+    });
+    prodLog.getRange(2, 2, prodLog.getMaxRows() - 1, 1).setHorizontalAlignment('right');
+  }
+
+  // CLIENTES
+  const cli = ss.getSheetByName(SH_CLIENTES);
+  if (cli) {
+    formatList_(cli, {
+      cols: 3,
+      widths: [240, 160, 320],
+      headerHeight: 36, rowHeight: 28
+    });
+  }
+
+  // STOCK (dashboard, 5 filas, valor entero)
+  const stock = ss.getSheetByName(SH_STOCK);
+  if (stock) {
+    formatDashboard_(stock, {
+      rows: 5,
+      valueFormat: '#,##0" bolsas"',
+      highlightRow: 5,
+      colWidths: [260, 220]
+    });
+  }
+
+  // PRODUCTO (dashboard, 7 filas, valor en $)
+  const prod = ss.getSheetByName(SH_PRODUCTO);
+  if (prod) {
+    formatDashboard_(prod, {
+      rows: 7,
+      valueFormat: '"$" #,##0',
+      highlightRow: 6,
+      colWidths: [260, 220]
+    });
+    // Filas 2..5 son inputs del usuario: bg distinto
+    prod.getRange('A2:B5').setBackground('#fffbeb'); // amarillo suave = editar
+    // Fila 7 (precio de venta) también es input
+    prod.getRange('A7:B7').setBackground('#fffbeb');
+  }
+
+  // GANANCIAS (dashboard, 7 filas, formato mixto)
+  const gan = ss.getSheetByName(SH_GANANCIAS);
+  if (gan) {
+    formatDashboard_(gan, {
+      rows: 7,
+      valueFormat: '"$" #,##0',
+      highlightRow: 6,
+      colWidths: [260, 240],
+      customFormats: { 2: '#,##0" bolsas"', 3: '#,##0" bolsas"', 7: '0.0"%"' }
+    });
+  }
+
+  // Apagar grillas en todas
+  [SH_PEDIDOS, SH_PRODUCCION, SH_CLIENTES, SH_STOCK, SH_PRODUCTO, SH_GANANCIAS].forEach(n => {
+    const s = ss.getSheetByName(n);
+    if (s) s.setHiddenGridlines(true);
+  });
+}
+
+function formatList_(sh, opt) {
+  const cols = opt.cols;
+
+  // Header
+  const hdr = sh.getRange(1, 1, 1, cols);
+  hdr.setBackground(COLOR_BRAND)
+     .setFontColor(COLOR_HEADER_TXT)
+     .setFontWeight('bold')
+     .setFontSize(11)
+     .setHorizontalAlignment('center')
+     .setVerticalAlignment('middle');
+  sh.setRowHeight(1, opt.headerHeight || 32);
+  sh.setFrozenRows(1);
+
+  // Anchos de columna
+  if (opt.widths) opt.widths.forEach((w, i) => sh.setColumnWidth(i + 1, w));
+
+  // Alturas de fila por defecto
+  if (opt.rowHeight) {
+    const last = sh.getMaxRows();
+    if (last > 1) {
+      try { sh.setRowHeights(2, last - 1, opt.rowHeight); } catch (_) {}
+    }
+  }
+
+  // Banding (filas alternadas) — limpia las anteriores primero
+  sh.getBandings().forEach(b => b.remove());
+  const bandRange = sh.getRange(1, 1, sh.getMaxRows(), cols);
+  const banding = bandRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+  banding.setHeaderRowColor(COLOR_BRAND).setFirstRowColor('#ffffff').setSecondRowColor('#f9fafb');
+
+  // Formatos
+  if (opt.numberCols) {
+    opt.numberCols.forEach(c => sh.getRange(2, c, sh.getMaxRows() - 1, 1).setNumberFormat('#,##0'));
+  }
+  if (opt.dateCols) {
+    opt.dateCols.forEach(c => sh.getRange(2, c, sh.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy HH:mm'));
+  }
+
+  // Wrap en columnas de texto largas — solo aplicar a cells; mejora legibilidad
+  sh.getRange(2, 1, sh.getMaxRows() - 1, cols).setVerticalAlignment('middle');
+}
+
+function formatDashboard_(sh, opt) {
+  // Header
+  const hdr = sh.getRange(1, 1, 1, 2);
+  hdr.setBackground(COLOR_BRAND)
+     .setFontColor(COLOR_HEADER_TXT)
+     .setFontWeight('bold')
+     .setFontSize(12)
+     .setHorizontalAlignment('center')
+     .setVerticalAlignment('middle');
+  sh.setRowHeight(1, 36);
+  sh.setFrozenRows(1);
+
+  // Anchos
+  const w = opt.colWidths || [240, 200];
+  sh.setColumnWidth(1, w[0]);
+  sh.setColumnWidth(2, w[1]);
+
+  // Labels (col A) bg suave + bold
+  const labels = sh.getRange(2, 1, opt.rows - 1, 1);
+  labels.setBackground(COLOR_LABEL_BG)
+        .setFontWeight('bold')
+        .setHorizontalAlignment('left')
+        .setVerticalAlignment('middle')
+        .setFontSize(11);
+
+  // Values (col B)
+  const values = sh.getRange(2, 2, opt.rows - 1, 1);
+  values.setBackground('#ffffff')
+        .setHorizontalAlignment('right')
+        .setVerticalAlignment('middle')
+        .setFontSize(12);
+  if (opt.valueFormat) values.setNumberFormat(opt.valueFormat);
+  if (opt.customFormats) {
+    Object.keys(opt.customFormats).forEach(row => {
+      sh.getRange(Number(row), 2).setNumberFormat(opt.customFormats[row]);
+    });
+  }
+
+  // Filas más altas
+  for (let r = 2; r <= opt.rows; r++) sh.setRowHeight(r, 32);
+
+  // Fila destacada (total)
+  if (opt.highlightRow) {
+    const r = sh.getRange(opt.highlightRow, 1, 1, 2);
+    r.setBackground(COLOR_HILITE_BG)
+     .setFontColor(COLOR_HILITE_TXT)
+     .setFontWeight('bold')
+     .setFontSize(14);
+    sh.setRowHeight(opt.highlightRow, 42);
+  }
+
+  // Bordes
+  sh.getRange(1, 1, opt.rows, 2)
+    .setBorder(true, true, true, true, true, true, COLOR_BORDER, SpreadsheetApp.BorderStyle.SOLID);
 }
