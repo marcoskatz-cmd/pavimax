@@ -97,18 +97,46 @@ function getEntregados() {
 }
 
 function getStock() {
+  // Calculamos todo en JS y escribimos B2/B3/B4 en la hoja
+  // (así no depende de fórmulas locale-dependent de Sheets)
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  const sh = ss.getSheetByName(SH_STOCK);
-  if (!sh) throw new Error('Falta hoja STOCK');
-  // Layout esperado de STOCK (columna A label, columna B valor):
-  // A1 "stock_inicial"   B1 <numero>
-  // A2 "total_producido" B2 =SUM(PRODUCCION!B:B)
-  // A3 "total_vendido"   B3 =SUMIF(PEDIDOS!F:F, "entregado", PEDIDOS!D:D)
-  // A4 "stock_actual"    B4 =B1+B2-B3
-  const values = sh.getRange('A1:B4').getValues();
-  const stock = {};
-  values.forEach(([k, v]) => { if (k) stock[k] = Number(v) || 0; });
-  return stock;
+  const stockSh = ss.getSheetByName(SH_STOCK);
+  if (!stockSh) throw new Error('Falta hoja STOCK');
+
+  const inicial = Number(stockSh.getRange('B1').getValue()) || 0;
+
+  // Sumar PRODUCCION!B (bolsas_producidas)
+  const prodSh = ss.getSheetByName(SH_PRODUCCION);
+  let producido = 0;
+  if (prodSh && prodSh.getLastRow() >= 2) {
+    const v = prodSh.getRange(2, 2, prodSh.getLastRow() - 1, 1).getValues();
+    v.forEach(([n]) => { producido += Number(n) || 0; });
+  }
+
+  // Sumar cantidad_bolsas de PEDIDOS con estado=entregado
+  // Columnas PEDIDOS: A=id B=fecha_carga C=cliente D=cantidad_bolsas E=obs_pedido F=estado
+  const pedSh = ss.getSheetByName(SH_PEDIDOS);
+  let vendido = 0;
+  if (pedSh && pedSh.getLastRow() >= 2) {
+    const v = pedSh.getRange(2, 1, pedSh.getLastRow() - 1, 6).getValues();
+    v.forEach(row => {
+      if (String(row[5]).toLowerCase() === 'entregado') {
+        vendido += Number(row[3]) || 0;
+      }
+    });
+  }
+
+  const actual = inicial + producido - vendido;
+
+  // Reflejar en la hoja para que se pueda ver desde Drive
+  stockSh.getRange('B2:B4').setValues([[producido], [vendido], [actual]]);
+
+  return {
+    stock_inicial:   inicial,
+    total_producido: producido,
+    total_vendido:   vendido,
+    stock_actual:    actual
+  };
 }
 
 // === ESCRITURA ===
@@ -211,9 +239,9 @@ function initSheets() {
   if (stock.getLastRow() === 0) {
     stock.getRange('A1:B4').setValues([
       ['stock_inicial',   0],
-      ['total_producido', '=SUM(PRODUCCION!B2:B)'],
-      ['total_vendido',   '=SUMIF(PEDIDOS!F2:F, "entregado", PEDIDOS!D2:D)'],
-      ['stock_actual',    '=B1+B2-B3']
+      ['total_producido', 0],
+      ['total_vendido',   0],
+      ['stock_actual',    0]
     ]);
   }
 }
