@@ -103,7 +103,7 @@ function getStock() {
   // Layout esperado de STOCK (columna A label, columna B valor):
   // A1 "stock_inicial"   B1 <numero>
   // A2 "total_producido" B2 =SUM(PRODUCCION!B:B)
-  // A3 "total_vendido"   B3 =SUMIFS(PEDIDOS!D:D, PEDIDOS!F:F, "entregado")
+  // A3 "total_vendido"   B3 =SUMIF(PEDIDOS!F:F, "entregado", PEDIDOS!D:D)
   // A4 "stock_actual"    B4 =B1+B2-B3
   const values = sh.getRange('A1:B4').getValues();
   const stock = {};
@@ -212,7 +212,7 @@ function initSheets() {
     stock.getRange('A1:B4').setValues([
       ['stock_inicial',   0],
       ['total_producido', '=SUM(PRODUCCION!B2:B)'],
-      ['total_vendido',   '=SUMIFS(PEDIDOS!D2:D, PEDIDOS!F2:F, "entregado")'],
+      ['total_vendido',   '=SUMIF(PEDIDOS!F2:F, "entregado", PEDIDOS!D2:D)'],
       ['stock_actual',    '=B1+B2-B3']
     ]);
   }
