@@ -58,9 +58,22 @@
     color: var(--muted); margin: 22px 4px 8px; font-weight: 700;
   }
 
+  /* === Stock summary === */
+  .stock-summary {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  .stock-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 12px;
+    box-shadow: var(--shadow);
+  }
+  .stock-card .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+  .stock-card .num { font-size: 26px; font-weight: 800; color: var(--primary-dark); line-height: 1.1; margin-top: 4px; }
+  .stock-card .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
   /* === Capacity overview === */
   .cap-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
     gap: 8px;
   }
   .cap-day {
@@ -90,10 +103,17 @@
     color: var(--text); padding: 14px; border-radius: 10px;
     font-size: 17px; font-family: inherit;
   }
+  .field select {
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center;
+    padding-right: 36px;
+  }
   .field input:focus, .field textarea:focus, .field select:focus {
     outline: none; border-color: var(--primary); background: var(--surface);
   }
   .field textarea { font-size: 15px; resize: vertical; min-height: 70px; }
+  .field .cliente-nuevo { margin-top: 8px; }
 
   .cap-feedback {
     background: var(--surface-2); border-radius: 10px; padding: 12px 14px;
@@ -109,28 +129,36 @@
     font-size: 16px; font-weight: 700; cursor: pointer;
     color: white; width: 100%; font-family: inherit;
   }
-  .btn-primary { background: var(--primary); }
+  .btn-primary   { background: var(--primary); }
   .btn-primary:active { background: var(--primary-dark); }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+  .btn:disabled  { opacity: 0.5; cursor: not-allowed; }
 
-  /* === Pendientes list (read-only) === */
+  /* === Pendientes list (clickable) === */
   .pend-row {
     display: flex; align-items: center; gap: 12px;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
+    cursor: pointer; transition: transform 0.05s ease, box-shadow 0.15s ease;
   }
+  .pend-row:hover  { box-shadow: var(--shadow-lg); }
+  .pend-row:active { transform: scale(0.995); }
   .pend-row .fecha-box {
     background: var(--primary-soft); color: var(--primary-dark);
     padding: 6px 10px; border-radius: 6px;
-    font-size: 12px; font-weight: 700; min-width: 70px; text-align: center;
-    border: 1px solid #bbf7d0;
+    font-size: 12px; font-weight: 700; min-width: 72px; text-align: center;
+    border: 1px solid #bbf7d0; white-space: nowrap;
   }
   .pend-row .fecha-box.urgente { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
-  .pend-row .info { flex: 1; }
+  .pend-row .fecha-box.sin     { background: var(--surface-2); color: var(--muted); border-color: var(--border); }
+  .pend-row .info { flex: 1; min-width: 0; }
   .pend-row .info .cli { font-weight: 700; }
-  .pend-row .info .obs { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .pend-row .info .obs { font-size: 12px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pend-row .cant { font-weight: 800; color: var(--primary-dark); font-size: 16px; white-space: nowrap; }
   .pend-row .cant small { font-size: 11px; color: var(--muted); font-weight: 500; }
+  .pend-row .edit-icon {
+    color: var(--muted); font-size: 18px; padding: 4px 8px;
+  }
 
   .empty {
     text-align: center; color: var(--muted); padding: 22px 10px;
@@ -145,6 +173,23 @@
     color: var(--primary-dark); text-decoration: none; font-size: 13px; font-weight: 600;
     padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px;
   }
+
+  /* === Modal === */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: flex-end; justify-content: center;
+    z-index: 100;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: var(--surface); width: 100%; max-width: 600px;
+    border-radius: 18px 18px 0 0; padding: 20px;
+    max-height: 92vh; overflow-y: auto;
+  }
+  .modal h2 { margin: 0 0 4px; font-size: 19px; color: var(--text); }
+  .modal .sub { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
+  .modal .actions { display: flex; gap: 8px; margin-top: 16px; }
+  .modal .actions .btn { flex: 1; }
 
   /* Toast */
   .toast {
@@ -174,8 +219,27 @@
 
 <main>
 
-  <h1>Cargar pedido</h1>
-  <p class="lead">Esta página es para la oficina. Cargá pedidos nuevos para PAVIMAX. La app del operario los va a mostrar automáticamente.</p>
+  <h1>Cargar y gestionar pedidos</h1>
+  <p class="lead">Esta página es para la oficina. Cargá pedidos nuevos y reasigná fechas si necesitás reacomodar para cumplir.</p>
+
+  <div class="section-title">Stock y pendientes</div>
+  <div class="stock-summary">
+    <div class="stock-card">
+      <div class="lbl">Stock actual</div>
+      <div class="num" id="stockNum">—</div>
+      <div class="sub">bolsas</div>
+    </div>
+    <div class="stock-card">
+      <div class="lbl">Pendientes</div>
+      <div class="num" id="pendCount">—</div>
+      <div class="sub">pedidos</div>
+    </div>
+    <div class="stock-card">
+      <div class="lbl">Comprometidas</div>
+      <div class="num" id="pendBolsas">—</div>
+      <div class="sub">bolsas</div>
+    </div>
+  </div>
 
   <div class="section-title">Capacidad próximos días</div>
   <div class="cap-grid" id="capGrid"></div>
@@ -184,8 +248,11 @@
   <div class="form-card">
     <div class="field">
       <label>Cliente</label>
-      <input type="text" id="cliente" list="clientes-list" placeholder="Elegí o escribí un nombre" autocomplete="off">
-      <datalist id="clientes-list"></datalist>
+      <select id="clienteSelect">
+        <option value="">— Elegí un cliente —</option>
+      </select>
+      <input type="text" id="clienteNuevo" class="cliente-nuevo"
+             placeholder="Nombre del cliente nuevo" autocomplete="off" style="display:none">
     </div>
     <div class="field">
       <label>Cantidad de bolsas</label>
@@ -205,13 +272,33 @@
     <button class="btn btn-primary" id="saveBtn">Cargar pedido</button>
   </div>
 
-  <div class="section-title">Pedidos pendientes</div>
+  <div class="section-title">Pedidos pendientes — tocá para cambiar la fecha</div>
   <div id="pendList"></div>
   <div class="helper-links">
     <a id="sheetLink" href="#" target="_blank">📋 Abrir planilla en Drive ↗</a>
   </div>
 
 </main>
+
+<!-- Modal: editar fecha de pedido -->
+<div class="modal-bg" id="editModalBg">
+  <div class="modal">
+    <h2>Cambiar fecha de entrega</h2>
+    <div class="sub" id="editSub"></div>
+
+    <div class="field">
+      <label>Nueva fecha</label>
+      <input type="date" id="editFecha">
+    </div>
+
+    <div class="cap-feedback" id="editFeedback" style="display:none"></div>
+
+    <div class="actions">
+      <button class="btn btn-secondary" id="editCancelBtn">Cancelar</button>
+      <button class="btn btn-primary" id="editSaveBtn">Guardar</button>
+    </div>
+  </div>
+</div>
 
 <div class="toast" id="toast"></div>
 <div class="status-bar" id="statusBar"></div>
@@ -224,13 +311,22 @@ const CONFIG = {
   POLL_MS:   30000
 };
 
-const state = { capacidad: null, clientes: [], pendientes: [] };
+const state = { capacidad: null, clientes: [], pendientes: [], stock: {} };
+let editingId = null;
 
 /* ===== INIT ===== */
 document.getElementById('sheetLink').href = CONFIG.SHEET_URL;
 document.getElementById('saveBtn').addEventListener('click', cargarPedido);
 document.getElementById('cantidad').addEventListener('input', updateFeedback);
 document.getElementById('fecha').addEventListener('change', updateFeedback);
+document.getElementById('clienteSelect').addEventListener('change', onClienteSelectChange);
+
+document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
+document.getElementById('editSaveBtn').addEventListener('click', saveEditFecha);
+document.getElementById('editFecha').addEventListener('change', updateEditFeedback);
+document.getElementById('editModalBg').addEventListener('click', e => {
+  if (e.target.id === 'editModalBg') closeEditModal();
+});
 
 // Default fecha = hoy
 document.getElementById('fecha').value = new Date().toISOString().slice(0, 10);
@@ -247,10 +343,13 @@ async function fetchAll() {
     state.capacidad  = j.data.capacidad  || null;
     state.clientes   = j.data.clientes   || [];
     state.pendientes = j.data.pendientes || [];
+    state.stock      = j.data.stock      || {};
+    renderStock();
     renderCapacidad();
     renderClientes();
     renderPendientes();
     updateFeedback();
+    if (editingId) updateEditFeedback();
     setStatus('última act. ' + new Date().toLocaleTimeString());
   } catch (e) {
     setStatus('error: ' + e.message, true);
@@ -258,6 +357,13 @@ async function fetchAll() {
 }
 
 /* ===== RENDER ===== */
+function renderStock() {
+  document.getElementById('stockNum').textContent = fmtNum(state.stock.stock_actual);
+  document.getElementById('pendCount').textContent = state.pendientes.length;
+  const totalBolsas = state.pendientes.reduce((s, p) => s + (Number(p.cantidad_bolsas) || 0), 0);
+  document.getElementById('pendBolsas').textContent = fmtNum(totalBolsas);
+}
+
 function renderCapacidad() {
   const grid = document.getElementById('capGrid');
   grid.innerHTML = '';
@@ -274,7 +380,7 @@ function renderCapacidad() {
     const cls = disp <= 0 ? 'danger' : (disp < state.capacidad.capacidad_diaria * 0.3 ? 'warn' : '');
     el.innerHTML = `
       <div class="lbl">${lbl}</div>
-      <div class="num ${cls}">${disp.toLocaleString('es-AR')}</div>
+      <div class="num ${cls}">${fmtNum(disp)}</div>
       <div class="sub">disponibles</div>
     `;
     grid.appendChild(el);
@@ -282,13 +388,41 @@ function renderCapacidad() {
 }
 
 function renderClientes() {
-  const dl = document.getElementById('clientes-list');
-  dl.innerHTML = '';
+  const sel = document.getElementById('clienteSelect');
+  const prevValue = sel.value;
+  sel.innerHTML = '';
+  const optEmpty = document.createElement('option');
+  optEmpty.value = ''; optEmpty.textContent = '— Elegí un cliente —';
+  sel.appendChild(optEmpty);
   state.clientes.forEach(c => {
     const opt = document.createElement('option');
-    opt.value = c;
-    dl.appendChild(opt);
+    opt.value = c; opt.textContent = c;
+    sel.appendChild(opt);
   });
+  const optNew = document.createElement('option');
+  optNew.value = '__new__'; optNew.textContent = '➕ Agregar nuevo cliente';
+  sel.appendChild(optNew);
+  // Restaurar selección si todavía existe
+  if (prevValue && [...sel.options].some(o => o.value === prevValue)) {
+    sel.value = prevValue;
+  }
+}
+
+function onClienteSelectChange(e) {
+  const nuevoInput = document.getElementById('clienteNuevo');
+  if (e.target.value === '__new__') {
+    nuevoInput.style.display = '';
+    setTimeout(() => nuevoInput.focus(), 50);
+  } else {
+    nuevoInput.style.display = 'none';
+    nuevoInput.value = '';
+  }
+}
+
+function getClienteName() {
+  const sel = document.getElementById('clienteSelect').value;
+  if (sel === '__new__') return document.getElementById('clienteNuevo').value.trim();
+  return sel;
 }
 
 function renderPendientes() {
@@ -302,24 +436,29 @@ function renderPendientes() {
   state.pendientes.forEach(p => {
     const el = document.createElement('div');
     el.className = 'pend-row';
+    el.dataset.id = p.id;
     const fechaTxt = p.fecha_entrega_solicitada || '—';
     const urgente = p.fecha_entrega_iso && p.fecha_entrega_iso <= today;
+    const sinFecha = !p.fecha_entrega_iso;
+    const fechaCls = sinFecha ? 'sin' : (urgente ? 'urgente' : '');
     el.innerHTML = `
-      <div class="fecha-box ${urgente ? 'urgente' : ''}">${fechaTxt}</div>
+      <div class="fecha-box ${fechaCls}">${fechaTxt}</div>
       <div class="info">
         <div class="cli"></div>
         <div class="obs"></div>
       </div>
       <div class="cant"><span class="qty"></span> <small>bolsas</small></div>
+      <div class="edit-icon">✏️</div>
     `;
     el.querySelector('.cli').textContent = p.cliente || '';
     el.querySelector('.obs').textContent = p.observacion_pedido || '';
-    el.querySelector('.qty').textContent = p.cantidad_bolsas;
+    el.querySelector('.qty').textContent = fmtNum(p.cantidad_bolsas);
+    el.addEventListener('click', () => openEditModal(p.id));
     list.appendChild(el);
   });
 }
 
-/* ===== FEEDBACK DE CAPACIDAD ===== */
+/* ===== FEEDBACK DE CAPACIDAD (form nuevo pedido) ===== */
 function updateFeedback() {
   const cant = Number(document.getElementById('cantidad').value) || 0;
   const fecha = document.getElementById('fecha').value;
@@ -330,10 +469,9 @@ function updateFeedback() {
 
   const day = cap.find(d => d.fecha === fecha);
   if (!day) {
-    // Fecha fuera del horizonte de 14 días
     el.style.display = '';
     el.className = 'cap-feedback ok';
-    el.innerHTML = `Fecha fuera del horizonte de 14 días — vas a tener tiempo de sobra para producir las <strong>${cant}</strong> bolsas.`;
+    el.innerHTML = `Fecha fuera del horizonte de 14 días — vas a tener tiempo de sobra para producir las <strong>${fmtNum(cant)}</strong> bolsas.`;
     return;
   }
 
@@ -341,26 +479,24 @@ function updateFeedback() {
   el.style.display = '';
   if (cant <= disp) {
     el.className = 'cap-feedback ok';
-    el.innerHTML = `✓ Para esa fecha tenés <strong>${disp.toLocaleString('es-AR')}</strong> bolsas disponibles. Si cargás este pedido te quedan <strong>${(disp - cant).toLocaleString('es-AR')}</strong>.`;
+    el.innerHTML = `✓ Para esa fecha tenés <strong>${fmtNum(disp)}</strong> bolsas disponibles. Si cargás este pedido te quedan <strong>${fmtNum(disp - cant)}</strong>.`;
   } else {
     const falta = cant - disp;
-    // Buscar primera fecha donde alcance
     const prox = cap.find(d => d.disponible >= cant);
     let sugerencia = '';
     if (prox) {
-      const f = formatIso(prox.fecha);
-      sugerencia = ` La fecha más temprana donde sí entran las ${cant.toLocaleString('es-AR')} bolsas es el <strong>${f}</strong>.`;
+      sugerencia = ` La fecha más temprana donde sí entran las ${fmtNum(cant)} bolsas es el <strong>${formatIso(prox.fecha)}</strong>.`;
     } else {
-      sugerencia = ' No alcanza ni en el horizonte de 14 días. Reducí la cantidad o coordiná con producción.';
+      sugerencia = ' No alcanza ni en el horizonte de 14 días. Coordiná con producción.';
     }
     el.className = 'cap-feedback warn';
-    el.innerHTML = `⚠ Para esa fecha solo tenés <strong>${disp.toLocaleString('es-AR')}</strong> bolsas disponibles. Te <strong>faltan ${falta.toLocaleString('es-AR')}</strong>.${sugerencia}`;
+    el.innerHTML = `⚠ Para esa fecha solo tenés <strong>${fmtNum(disp)}</strong> bolsas disponibles. Te <strong>faltan ${fmtNum(falta)}</strong>.${sugerencia}`;
   }
 }
 
 /* ===== CARGAR PEDIDO ===== */
 async function cargarPedido() {
-  const cliente = document.getElementById('cliente').value.trim();
+  const cliente = getClienteName();
   const cantidad = Number(document.getElementById('cantidad').value);
   const fecha = document.getElementById('fecha').value;
   const obs = document.getElementById('observacion').value.trim();
@@ -369,7 +505,6 @@ async function cargarPedido() {
   if (!cantidad || cantidad <= 0) { toast('Cantidad inválida', 'err'); return; }
   if (!fecha) { toast('Falta la fecha de entrega', 'err'); return; }
 
-  // Pasarse de capacidad → pedir confirmación
   const cap = state.capacidad && state.capacidad.horizonte;
   if (cap) {
     const day = cap.find(d => d.fecha === fecha);
@@ -393,8 +528,10 @@ async function cargarPedido() {
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
     toast(`✓ Pedido #${j.data.id} cargado`, 'ok');
-    // Reset form (menos fecha que queda en hoy)
-    document.getElementById('cliente').value = '';
+    // Reset
+    document.getElementById('clienteSelect').value = '';
+    document.getElementById('clienteNuevo').value = '';
+    document.getElementById('clienteNuevo').style.display = 'none';
     document.getElementById('cantidad').value = '';
     document.getElementById('observacion').value = '';
     document.getElementById('feedback').style.display = 'none';
@@ -406,15 +543,120 @@ async function cargarPedido() {
   }
 }
 
-/* ===== UTILIDADES ===== */
+/* ===== EDIT MODAL ===== */
+function openEditModal(id) {
+  const p = state.pendientes.find(x => String(x.id) === String(id));
+  if (!p) return;
+  editingId = p.id;
+  document.getElementById('editSub').textContent =
+    `${p.cliente} — ${fmtNum(p.cantidad_bolsas)} bolsas` +
+    (p.observacion_pedido ? ` (${p.observacion_pedido})` : '');
+  document.getElementById('editFecha').value = p.fecha_entrega_iso ||
+    new Date().toISOString().slice(0, 10);
+  document.getElementById('editFeedback').style.display = 'none';
+  document.getElementById('editModalBg').classList.add('show');
+  updateEditFeedback();
+}
+
+function closeEditModal() {
+  document.getElementById('editModalBg').classList.remove('show');
+  editingId = null;
+}
+
+function updateEditFeedback() {
+  if (!editingId) return;
+  const p = state.pendientes.find(x => String(x.id) === String(editingId));
+  if (!p) return;
+  const fecha = document.getElementById('editFecha').value;
+  const el = document.getElementById('editFeedback');
+  if (!fecha) { el.style.display = 'none'; return; }
+  const cap = state.capacidad && state.capacidad.horizonte;
+  if (!cap) { el.style.display = 'none'; return; }
+
+  const day = cap.find(d => d.fecha === fecha);
+  if (!day) {
+    el.style.display = '';
+    el.className = 'cap-feedback ok';
+    el.innerHTML = `Fecha fuera del horizonte de 14 días — vas a tener tiempo de sobra.`;
+    return;
+  }
+
+  // Disponible recalculado: si el pedido actual estaba comprometido hasta una
+  // fecha <= la nueva fecha, ya está contado en committed; lo sumamos de vuelta.
+  let disp = day.disponible;
+  if (p.fecha_entrega_iso && p.fecha_entrega_iso <= fecha) {
+    disp += Number(p.cantidad_bolsas) || 0;
+  }
+
+  const cant = Number(p.cantidad_bolsas) || 0;
+  el.style.display = '';
+  if (cant <= disp) {
+    el.className = 'cap-feedback ok';
+    el.innerHTML = `✓ Para esa fecha hay capacidad para las <strong>${fmtNum(cant)}</strong> bolsas. Te quedan <strong>${fmtNum(disp - cant)}</strong> después.`;
+  } else {
+    const falta = cant - disp;
+    el.className = 'cap-feedback warn';
+    el.innerHTML = `⚠ Para esa fecha solo hay <strong>${fmtNum(disp)}</strong> disponibles. Faltan <strong>${fmtNum(falta)}</strong> bolsas.`;
+  }
+}
+
+async function saveEditFecha() {
+  if (!editingId) return;
+  const fecha = document.getElementById('editFecha').value;
+  if (!fecha) { toast('Falta fecha', 'err'); return; }
+
+  // Warn if over capacity but allow with confirm
+  const p = state.pendientes.find(x => String(x.id) === String(editingId));
+  const cap = state.capacidad && state.capacidad.horizonte;
+  if (p && cap) {
+    const day = cap.find(d => d.fecha === fecha);
+    if (day) {
+      let disp = day.disponible;
+      if (p.fecha_entrega_iso && p.fecha_entrega_iso <= fecha) {
+        disp += Number(p.cantidad_bolsas) || 0;
+      }
+      const cant = Number(p.cantidad_bolsas) || 0;
+      if (cant > disp) {
+        if (!confirm(`⚠ La fecha nueva no tiene capacidad para las ${cant} bolsas (faltan ${cant - disp}). ¿Guardar igual?`)) return;
+      }
+    }
+  }
+
+  const btn = document.getElementById('editSaveBtn');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const r = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'actualizarFechaEntrega',
+        id: editingId,
+        fecha_entrega: fecha
+      })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'error');
+    toast('Fecha actualizada ✓', 'ok');
+    closeEditModal();
+    fetchAll();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Guardar';
+  }
+}
+
+/* ===== UTILS ===== */
+function fmtNum(n) {
+  if (n === undefined || n === null || n === '') return '—';
+  return Number(n).toLocaleString('es-AR');
+}
 function parseIso(s) {
   const p = s.split('-');
   return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
 }
 function fmtShortDate(d) {
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return dd + '/' + mm;
+  return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
 }
 function formatIso(s) {
   const p = s.split('-');

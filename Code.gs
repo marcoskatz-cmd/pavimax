@@ -62,9 +62,11 @@ function doPost(e) {
     const body   = JSON.parse(e.postData.contents || '{}');
     const action = body.action;
     let result;
-    if (action === 'entregar')          result = entregarPedido(body);
-    else if (action === 'producir')     result = registrarProduccion(body);
-    else if (action === 'cargarPedido') result = cargarPedido(body);
+    if (action === 'entregar')                    result = entregarPedido(body);
+    else if (action === 'producir')               result = registrarProduccion(body);
+    else if (action === 'cargarPedido')           result = cargarPedido(body);
+    else if (action === 'addCliente')             result = addCliente(body);
+    else if (action === 'actualizarFechaEntrega') result = actualizarFechaEntrega(body);
     else throw new Error('Acción desconocida: ' + action);
     return jsonResponse({ ok: true, data: result });
   } catch (err) {
@@ -271,6 +273,9 @@ function cargarPedido(body) {
   if (!fechaStr) throw new Error('Falta fecha de entrega');
   const fechaEntrega = parseIsoDate_(fechaStr);
 
+  // Auto-agregar cliente a CLIENTES si no existía (silencioso)
+  try { addCliente({ nombre: cliente }); } catch (_) {}
+
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sh = ss.getSheetByName(SH_PEDIDOS);
   if (!sh) throw new Error('Falta hoja PEDIDOS');
@@ -347,6 +352,51 @@ function getCapacidad() {
     stock_actual:     stockActual,
     horizonte:        horizonte
   };
+}
+
+function addCliente(body) {
+  const nombre = String(body.nombre || '').trim();
+  if (!nombre) throw new Error('Falta nombre');
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName(SH_CLIENTES);
+  if (!sh) throw new Error('Falta hoja CLIENTES');
+  // Existe (case-insensitive)?
+  if (sh.getLastRow() >= 2) {
+    const existing = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+    const yaEsta = existing.some(([n]) =>
+      String(n || '').trim().toLowerCase() === nombre.toLowerCase());
+    if (yaEsta) return { nombre, existed: true };
+  }
+  sh.appendRow([nombre, '', '']);
+  return { nombre, existed: false };
+}
+
+function actualizarFechaEntrega(body) {
+  const id = String(body.id || '').trim();
+  const fechaStr = String(body.fecha_entrega || '').trim();
+  if (!id) throw new Error('Falta id');
+  if (!fechaStr) throw new Error('Falta fecha');
+  const fecha = parseIsoDate_(fechaStr);
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName(SH_PEDIDOS);
+  if (!sh) throw new Error('Falta hoja PEDIDOS');
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+    .map(h => String(h).trim());
+  const colId    = headers.indexOf('id') + 1;
+  const colFecha = headers.indexOf('fecha_entrega_solicitada') + 1;
+  if (colId < 1 || colFecha < 1) throw new Error('Faltan columnas id o fecha_entrega_solicitada');
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) throw new Error('No hay pedidos');
+  const ids = sh.getRange(2, colId, lastRow - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === id) {
+      sh.getRange(2 + i, colFecha).setValue(fecha);
+      return { id, fecha_entrega: fechaStr };
+    }
+  }
+  throw new Error('Pedido no encontrado: ' + id);
 }
 
 function getClientes() {
