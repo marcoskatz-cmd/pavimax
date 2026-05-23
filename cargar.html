@@ -328,8 +328,8 @@ document.getElementById('editModalBg').addEventListener('click', e => {
   if (e.target.id === 'editModalBg') closeEditModal();
 });
 
-// Default fecha = hoy
-document.getElementById('fecha').value = new Date().toISOString().slice(0, 10);
+// Default fecha = hoy (hora local Argentina, no UTC)
+document.getElementById('fecha').value = todayIso();
 
 fetchAll();
 setInterval(fetchAll, CONFIG.POLL_MS);
@@ -368,14 +368,13 @@ function renderCapacidad() {
   const grid = document.getElementById('capGrid');
   grid.innerHTML = '';
   if (!state.capacidad || !state.capacidad.horizonte) return;
-  const horizonte = state.capacidad.horizonte.slice(0, 7);
-  const today = new Date().toISOString().slice(0, 10);
+  // Saltar el día 0 (hoy) — ya está en el panel de stock arriba
+  const horizonte = state.capacidad.horizonte.filter(d => d.dia_offset > 0).slice(0, 7);
   horizonte.forEach(d => {
     const el = document.createElement('div');
     el.className = 'cap-day';
     const fechaObj = parseIso(d.fecha);
-    const lbl = d.fecha === today ? 'HOY'
-              : (d.dia_offset === 1 ? 'MAÑANA' : fmtShortDate(fechaObj));
+    const lbl = d.dia_offset === 1 ? 'MAÑANA' : fmtShortDate(fechaObj);
     const disp = d.disponible;
     const cls = disp <= 0 ? 'danger' : (disp < state.capacidad.capacidad_diaria * 0.3 ? 'warn' : '');
     el.innerHTML = `
@@ -432,7 +431,7 @@ function renderPendientes() {
     list.innerHTML = '<div class="empty">No hay pedidos pendientes 🎉</div>';
     return;
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   state.pendientes.forEach(p => {
     const el = document.createElement('div');
     el.className = 'pend-row';
@@ -551,8 +550,7 @@ function openEditModal(id) {
   document.getElementById('editSub').textContent =
     `${p.cliente} — ${fmtNum(p.cantidad_bolsas)} bolsas` +
     (p.observacion_pedido ? ` (${p.observacion_pedido})` : '');
-  document.getElementById('editFecha').value = p.fecha_entrega_iso ||
-    new Date().toISOString().slice(0, 10);
+  document.getElementById('editFecha').value = p.fecha_entrega_iso || todayIso();
   document.getElementById('editFeedback').style.display = 'none';
   document.getElementById('editModalBg').classList.add('show');
   updateEditFeedback();
@@ -647,6 +645,14 @@ async function saveEditFecha() {
 }
 
 /* ===== UTILS ===== */
+function todayIso() {
+  // Fecha local YYYY-MM-DD (evita el bug de toISOString que usa UTC)
+  const d = new Date();
+  return d.getFullYear() + '-' +
+         String(d.getMonth() + 1).padStart(2, '0') + '-' +
+         String(d.getDate()).padStart(2, '0');
+}
+
 function fmtNum(n) {
   if (n === undefined || n === null || n === '') return '—';
   return Number(n).toLocaleString('es-AR');

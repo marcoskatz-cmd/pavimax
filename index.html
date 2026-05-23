@@ -624,7 +624,10 @@ function cardPendiente(p) {
     ent.style.display = '';
     ent.textContent = '📅 Entregar el ' + p.fecha_entrega_solicitada;
     if (p.fecha_entrega_iso) {
-      const hoy = new Date().toISOString().slice(0, 10);
+      const d = new Date();
+      const hoy = d.getFullYear() + '-' +
+                  String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                  String(d.getDate()).padStart(2, '0');
       if (p.fecha_entrega_iso <= hoy) ent.classList.add('urgente');
     }
   }
