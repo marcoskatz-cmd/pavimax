@@ -8,9 +8,9 @@
  * Copiar la URL /exec y pegarla en index.html (CONFIG.API_URL).
  */
 
-// === CONFIG (editar después de crear Sheet y carpeta) ===
-const SHEET_ID  = 'PEGAR_AQUI_EL_ID_DE_LA_PLANILLA';
-const FOLDER_ID = 'PEGAR_AQUI_EL_ID_DE_LA_CARPETA_REMITOS';
+// === CONFIG ===
+const SHEET_ID  = '1r3LxaldzRNRA3GMenSbOfPk1nXZkjQvo9BJOa01dqv0';
+const FOLDER_ID = '12mjpJkxDplBqp4XPnrgm9uz2gWWe2f-z';
 
 // === NOMBRES DE HOJAS ===
 const SH_PEDIDOS    = 'PEDIDOS';
