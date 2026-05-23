@@ -20,6 +20,10 @@ const SH_CLIENTES   = 'CLIENTES';
 const SH_PRODUCTO   = 'PRODUCTO';
 const SH_GANANCIAS  = 'GANANCIAS';
 
+// === CAPACIDAD ===
+const CAPACIDAD_DIARIA = 120;  // bolsas que se pueden producir por día
+const HORIZONTE_DIAS   = 14;   // ventana hacia adelante para calcular capacidad
+
 // === ESTILO ===
 const COLOR_BRAND       = '#157f3d';
 const COLOR_BRAND_DARK  = '#0f5e2d';
@@ -44,6 +48,8 @@ function doGet(e) {
     else if (action === 'stock')      data = { stock: getStock() };
     else if (action === 'ganancias')  data = { ganancias: getGanancias() };
     else if (action === 'produccion') data = { produccion: getProduccion() };
+    else if (action === 'capacidad')  data = { capacidad: getCapacidad() };
+    else if (action === 'clientes')   data = { clientes: getClientes() };
     else                              data = getAll();
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -56,8 +62,9 @@ function doPost(e) {
     const body   = JSON.parse(e.postData.contents || '{}');
     const action = body.action;
     let result;
-    if (action === 'entregar')      result = entregarPedido(body);
-    else if (action === 'producir') result = registrarProduccion(body);
+    if (action === 'entregar')          result = entregarPedido(body);
+    else if (action === 'producir')     result = registrarProduccion(body);
+    else if (action === 'cargarPedido') result = cargarPedido(body);
     else throw new Error('Acción desconocida: ' + action);
     return jsonResponse({ ok: true, data: result });
   } catch (err) {
@@ -78,7 +85,9 @@ function getAll() {
     entregados: getEntregados(),
     stock:      getStock(),
     ganancias:  getGanancias(),
-    produccion: getProduccion()
+    produccion: getProduccion(),
+    capacidad:  getCapacidad(),
+    clientes:   getClientes()
   };
 }
 
@@ -109,8 +118,11 @@ function getPendientes() {
       fecha_carga: fmt(r.fecha_carga),
       cliente: r.cliente,
       cantidad_bolsas: Number(r.cantidad_bolsas) || 0,
+      fecha_entrega_solicitada: fmtDate_(r.fecha_entrega_solicitada),
+      fecha_entrega_iso: toIsoDate_(r.fecha_entrega_solicitada),
       observacion_pedido: r.observacion_pedido || ''
-    }));
+    }))
+    .sort((a, b) => (a.fecha_entrega_iso || '9999').localeCompare(b.fecha_entrega_iso || '9999'));
 }
 
 function getEntregados() {
@@ -249,6 +261,103 @@ function registrarProduccion(body) {
   return { fecha: new Date().toISOString(), cantidad, operario };
 }
 
+function cargarPedido(body) {
+  const cliente = String(body.cliente || '').trim();
+  const cantidad = Number(body.cantidad);
+  const fechaStr = String(body.fecha_entrega || '').trim();
+  const obs = String(body.observacion || '').trim();
+  if (!cliente)  throw new Error('Falta cliente');
+  if (!cantidad || cantidad <= 0) throw new Error('Cantidad inválida');
+  if (!fechaStr) throw new Error('Falta fecha de entrega');
+  const fechaEntrega = parseIsoDate_(fechaStr);
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName(SH_PEDIDOS);
+  if (!sh) throw new Error('Falta hoja PEDIDOS');
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+    .map(h => String(h).trim());
+
+  // Próximo id
+  let maxId = 0;
+  if (sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues()
+      .forEach(([v]) => {
+        const n = Number(v);
+        if (!isNaN(n) && n > maxId) maxId = n;
+      });
+  }
+  const id = maxId + 1;
+
+  // Construir fila siguiendo el orden real de columnas del sheet
+  const valMap = {
+    'id': id,
+    'fecha_carga': new Date(),
+    'cliente': cliente,
+    'cantidad_bolsas': cantidad,
+    'fecha_entrega_solicitada': fechaEntrega,
+    'observacion_pedido': obs,
+    'estado': 'pendiente',
+    'fecha_entrega': '',
+    'observacion_entrega': '',
+    'link_remito': ''
+  };
+  const row = headers.map(h => valMap[h] !== undefined ? valMap[h] : '');
+  sh.appendRow(row);
+
+  return { id };
+}
+
+// === CAPACIDAD ===
+// Devuelve un breakdown día por día de capacidad acumulada vs. bolsas comprometidas
+function getCapacidad() {
+  const stockObj = getStock();
+  const stockActual = stockObj.stock_actual;
+
+  // Pedidos pendientes con fecha objetivo
+  const pendientes = readSheet(SH_PEDIDOS)
+    .filter(r => String(r.estado || '').toLowerCase() === 'pendiente')
+    .map(r => ({
+      fechaIso: toIsoDate_(r.fecha_entrega_solicitada),
+      cantidad: Number(r.cantidad_bolsas) || 0
+    }))
+    .filter(p => p.fechaIso && p.cantidad > 0);
+
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  const horizonte = [];
+  for (let i = 0; i <= HORIZONTE_DIAS; i++) {
+    const d = new Date(hoy);
+    d.setDate(hoy.getDate() + i);
+    const iso = toIsoDate_(d);
+    const capacidadAcum = stockActual + CAPACIDAD_DIARIA * i;
+    const committedAcum = pendientes
+      .filter(p => p.fechaIso <= iso)
+      .reduce((s, p) => s + p.cantidad, 0);
+    horizonte.push({
+      fecha: iso,
+      dia_offset: i,
+      capacidad_acum: capacidadAcum,
+      committed_acum: committedAcum,
+      disponible: capacidadAcum - committedAcum
+    });
+  }
+  return {
+    capacidad_diaria: CAPACIDAD_DIARIA,
+    stock_actual:     stockActual,
+    horizonte:        horizonte
+  };
+}
+
+function getClientes() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName(SH_CLIENTES);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues()
+    .map(([n]) => String(n || '').trim())
+    .filter(n => n);
+}
+
 // === SIMPLE TRIGGER ===
 // Auto-completa id, fecha_carga y estado cuando alguien escribe en la columna
 // cliente (C) de una fila nueva de PEDIDOS. NO requiere instalar trigger.
@@ -256,29 +365,34 @@ function onEdit(e) {
   try {
     const sh = e.range.getSheet();
     if (sh.getName() !== SH_PEDIDOS) return;
-    if (e.range.getColumn() !== 3) return;
+    const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+      .map(h => String(h).trim());
+    const colCliente = headers.indexOf('cliente') + 1;
+    const colId      = headers.indexOf('id') + 1;
+    const colFecha   = headers.indexOf('fecha_carga') + 1;
+    const colEstado  = headers.indexOf('estado') + 1;
+    if (colCliente < 1) return;
+    if (e.range.getColumn() !== colCliente) return;
     const row = e.range.getRow();
     if (row < 2) return;
     if (e.value === undefined || e.value === '') return;
 
-    const idCell     = sh.getRange(row, 1);
-    const fechaCell  = sh.getRange(row, 2);
-    const estadoCell = sh.getRange(row, 6);
-
-    if (!idCell.getValue()) {
-      const last = sh.getLastRow();
-      let maxId = 0;
-      if (last >= 2) {
-        const ids = sh.getRange(2, 1, last - 1, 1).getValues();
-        ids.forEach(([v]) => {
-          const n = Number(v);
-          if (!isNaN(n) && n > maxId) maxId = n;
-        });
+    if (colId > 0) {
+      const idCell = sh.getRange(row, colId);
+      if (!idCell.getValue()) {
+        const last = sh.getLastRow();
+        let maxId = 0;
+        if (last >= 2) {
+          sh.getRange(2, colId, last - 1, 1).getValues().forEach(([v]) => {
+            const n = Number(v);
+            if (!isNaN(n) && n > maxId) maxId = n;
+          });
+        }
+        idCell.setValue(maxId + 1);
       }
-      idCell.setValue(maxId + 1);
     }
-    if (!fechaCell.getValue()) fechaCell.setValue(new Date());
-    if (!estadoCell.getValue()) estadoCell.setValue('pendiente');
+    if (colFecha  > 0 && !sh.getRange(row, colFecha ).getValue()) sh.getRange(row, colFecha ).setValue(new Date());
+    if (colEstado > 0 && !sh.getRange(row, colEstado).getValue()) sh.getRange(row, colEstado).setValue('pendiente');
   } catch (_) { /* silenciado */ }
 }
 
@@ -294,16 +408,14 @@ function sumProducido_() {
 }
 
 function sumVendido_() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  const pedSh = ss.getSheetByName(SH_PEDIDOS);
-  if (!pedSh || pedSh.getLastRow() < 2) return 0;
+  // Por headers — inmune a cambios de orden de columnas
+  const rows = readSheet(SH_PEDIDOS);
   let total = 0;
-  pedSh.getRange(2, 1, pedSh.getLastRow() - 1, 6).getValues()
-    .forEach(row => {
-      if (String(row[5]).toLowerCase() === 'entregado') {
-        total += Number(row[3]) || 0;
-      }
-    });
+  rows.forEach(r => {
+    if (String(r.estado || '').toLowerCase() === 'entregado') {
+      total += Number(r.cantidad_bolsas) || 0;
+    }
+  });
   return total;
 }
 
@@ -331,6 +443,27 @@ function fmt(d) {
   return String(d);
 }
 
+function fmtDate_(d) {
+  if (!d) return '';
+  if (d instanceof Date) {
+    return Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  }
+  return String(d);
+}
+
+function toIsoDate_(d) {
+  if (!d) return '';
+  const date = d instanceof Date ? d : new Date(d);
+  if (isNaN(date.getTime())) return '';
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function parseIsoDate_(s) {
+  const parts = String(s).split('-');
+  if (parts.length !== 3) throw new Error('Fecha inválida: ' + s);
+  return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+}
+
 // =============================================================
 // INIT + MIGRACIÓN + FORMATO VISUAL
 // Ejecutá `initSheets` UNA VEZ después de pegar este archivo. Es
@@ -346,9 +479,21 @@ function initSheets() {
     ped = ss.insertSheet(SH_PEDIDOS);
     ped.appendRow([
       'id', 'fecha_carga', 'cliente', 'cantidad_bolsas',
+      'fecha_entrega_solicitada',
       'observacion_pedido', 'estado', 'fecha_entrega',
       'observacion_entrega', 'link_remito'
     ]);
+  } else {
+    // Migración: insertar fecha_entrega_solicitada después de cantidad_bolsas si no existe
+    const headers = ped.getRange(1, 1, 1, ped.getLastColumn()).getValues()[0]
+      .map(h => String(h).trim());
+    if (headers.indexOf('fecha_entrega_solicitada') === -1) {
+      const colCantidad = headers.indexOf('cantidad_bolsas') + 1;
+      if (colCantidad > 0) {
+        ped.insertColumnAfter(colCantidad);
+        ped.getRange(1, colCantidad + 1).setValue('fecha_entrega_solicitada');
+      }
+    }
   }
 
   // --- PRODUCCION ---
@@ -463,29 +608,51 @@ function applyFormatting_() {
   // PEDIDOS
   const ped = ss.getSheetByName(SH_PEDIDOS);
   if (ped) {
+    const headers = ped.getRange(1, 1, 1, ped.getLastColumn()).getValues()[0]
+      .map(h => String(h).trim());
+    const colOf = name => headers.indexOf(name) + 1;
+    const colId        = colOf('id');
+    const colFCarga    = colOf('fecha_carga');
+    const colCant      = colOf('cantidad_bolsas');
+    const colFSolic    = colOf('fecha_entrega_solicitada');
+    const colEstado    = colOf('estado');
+    const colFEntrega  = colOf('fecha_entrega');
+    const totalCols    = headers.length;
+
+    // Anchos: armar dinámicamente
+    const widths = headers.map(h => ({
+      'id': 60, 'fecha_carga': 150, 'cliente': 200, 'cantidad_bolsas': 130,
+      'fecha_entrega_solicitada': 150, 'observacion_pedido': 220, 'estado': 110,
+      'fecha_entrega': 150, 'observacion_entrega': 220, 'link_remito': 200
+    })[h] || 140);
+    const numberCols = [colCant].filter(c => c > 0);
+    const dateCols   = [colFCarga, colFSolic, colFEntrega].filter(c => c > 0);
+
     formatList_(ped, {
-      cols: 9,
-      widths: [60, 150, 200, 130, 220, 110, 150, 220, 200],
-      headerHeight: 36,
-      rowHeight: 28,
-      numberCols: [4],
-      dateCols: [2, 7]
+      cols: totalCols, widths,
+      headerHeight: 36, rowHeight: 28,
+      numberCols, dateCols
     });
-    // Conditional formatting en estado (col F)
-    const estadoRange = ped.getRange(2, 6, ped.getMaxRows() - 1, 1);
-    const rulePend = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo('pendiente')
-      .setBackground(COLOR_PEND_BG).setFontColor(COLOR_PEND_TXT).setBold(true)
-      .setRanges([estadoRange]).build();
-    const ruleEntr = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo('entregado')
-      .setBackground(COLOR_ENTR_BG).setFontColor(COLOR_ENTR_TXT).setBold(true)
-      .setRanges([estadoRange]).build();
-    ped.setConditionalFormatRules([rulePend, ruleEntr]);
-    // Centrar estado e id
-    ped.getRange(2, 1, ped.getMaxRows() - 1, 1).setHorizontalAlignment('center');
-    ped.getRange(2, 6, ped.getMaxRows() - 1, 1).setHorizontalAlignment('center');
-    ped.getRange(2, 4, ped.getMaxRows() - 1, 1).setHorizontalAlignment('right');
+    // Fecha solicitada usa solo fecha (sin hora)
+    if (colFSolic > 0) {
+      ped.getRange(2, colFSolic, ped.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy');
+    }
+    // Conditional formatting en estado
+    if (colEstado > 0) {
+      const estadoRange = ped.getRange(2, colEstado, ped.getMaxRows() - 1, 1);
+      const rulePend = SpreadsheetApp.newConditionalFormatRule()
+        .whenTextEqualTo('pendiente')
+        .setBackground(COLOR_PEND_BG).setFontColor(COLOR_PEND_TXT).setBold(true)
+        .setRanges([estadoRange]).build();
+      const ruleEntr = SpreadsheetApp.newConditionalFormatRule()
+        .whenTextEqualTo('entregado')
+        .setBackground(COLOR_ENTR_BG).setFontColor(COLOR_ENTR_TXT).setBold(true)
+        .setRanges([estadoRange]).build();
+      ped.setConditionalFormatRules([rulePend, ruleEntr]);
+      ped.getRange(2, colEstado, ped.getMaxRows() - 1, 1).setHorizontalAlignment('center');
+    }
+    if (colId   > 0) ped.getRange(2, colId,   ped.getMaxRows() - 1, 1).setHorizontalAlignment('center');
+    if (colCant > 0) ped.getRange(2, colCant, ped.getMaxRows() - 1, 1).setHorizontalAlignment('right');
   }
 
   // PRODUCCION

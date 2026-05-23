@@ -101,6 +101,18 @@
   }
   .home-btn .badge.hidden { display: none; }
 
+  /* ===== Fecha objetivo en cards de pedidos ===== */
+  .card .entrega-info {
+    background: var(--primary-soft); color: var(--primary-dark);
+    border: 1px solid #bbf7d0;
+    padding: 6px 10px; border-radius: 6px;
+    font-size: 13px; font-weight: 600;
+    display: inline-block;
+  }
+  .card .entrega-info.urgente {
+    background: #fef2f2; color: #991b1b; border-color: #fecaca;
+  }
+
   /* ===== Instrucciones home ===== */
   .help-card {
     background: var(--surface); border: 1px solid var(--border);
@@ -598,18 +610,31 @@ function cardPendiente(p) {
       <div class="cliente"></div>
       <div class="cantidad"><span class="qty"></span><small> bolsas</small></div>
     </div>
+    <div class="entrega-info" style="display:none"></div>
     <div class="tag" style="display:none"></div>
     <div class="fecha"></div>
     <button class="btn btn-ok">ENTREGAR</button>
   `;
   el.querySelector('.cliente').textContent = p.cliente;
   el.querySelector('.qty').textContent = p.cantidad_bolsas;
+
+  // Fecha objetivo de entrega (prominente, roja si es hoy o pasada)
+  const ent = el.querySelector('.entrega-info');
+  if (p.fecha_entrega_solicitada) {
+    ent.style.display = '';
+    ent.textContent = '📅 Entregar el ' + p.fecha_entrega_solicitada;
+    if (p.fecha_entrega_iso) {
+      const hoy = new Date().toISOString().slice(0, 10);
+      if (p.fecha_entrega_iso <= hoy) ent.classList.add('urgente');
+    }
+  }
+
   const tag = el.querySelector('.tag');
   if (p.observacion_pedido) {
     tag.style.display = '';
     tag.textContent = '⚠ ' + p.observacion_pedido;
   }
-  el.querySelector('.fecha').textContent = p.fecha_carga ? 'Pedido: ' + p.fecha_carga : '';
+  el.querySelector('.fecha').textContent = p.fecha_carga ? 'Cargado: ' + p.fecha_carga : '';
   el.querySelector('button').addEventListener('click', () => openModal(p));
   return el;
 }

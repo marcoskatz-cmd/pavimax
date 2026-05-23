@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#157f3d">
+<title>PAVIMAX — Cargar pedido</title>
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --surface-2: #fafbfc;
+    --text: #111827;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --primary: #157f3d;
+    --primary-dark: #0f5e2d;
+    --primary-soft: #e8f5ec;
+    --ok: #16a34a;
+    --ok-dark: #15803d;
+    --warn: #dc2626;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+
+  header {
+    background: var(--surface);
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    position: sticky; top: 0; z-index: 50;
+  }
+  header .brand { flex: 1; display: flex; align-items: center; }
+  header .brand img { height: 26px; display: block; }
+  header .role {
+    background: var(--primary-soft); color: var(--primary-dark);
+    border: 1px solid #bbf7d0;
+    padding: 4px 10px; border-radius: 6px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+  }
+  header a.link-app {
+    color: var(--muted); text-decoration: none; font-size: 12px;
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+  }
+
+  main { padding: 16px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 8px 0 4px; color: var(--text); }
+  .lead { color: var(--muted); margin: 0 0 18px; font-size: 14px; line-height: 1.4; }
+
+  .section-title {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin: 22px 4px 8px; font-weight: 700;
+  }
+
+  /* === Capacity overview === */
+  .cap-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+  }
+  .cap-day {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+    box-shadow: var(--shadow);
+  }
+  .cap-day .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+  .cap-day .num { font-size: 22px; font-weight: 800; color: var(--primary-dark); margin-top: 4px; line-height: 1; }
+  .cap-day .num.danger { color: var(--warn); }
+  .cap-day .num.warn { color: #d97706; }
+  .cap-day .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* === Form === */
+  .form-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px;
+    box-shadow: var(--shadow);
+  }
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block; font-size: 13px; color: var(--muted);
+    margin-bottom: 6px; font-weight: 600;
+  }
+  .field input, .field textarea, .field select {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text); padding: 14px; border-radius: 10px;
+    font-size: 17px; font-family: inherit;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus {
+    outline: none; border-color: var(--primary); background: var(--surface);
+  }
+  .field textarea { font-size: 15px; resize: vertical; min-height: 70px; }
+
+  .cap-feedback {
+    background: var(--surface-2); border-radius: 10px; padding: 12px 14px;
+    margin-bottom: 14px; font-size: 14px; line-height: 1.4;
+    border: 1px solid var(--border);
+  }
+  .cap-feedback.ok   { background: #f0fdf4; color: var(--ok-dark); border-color: #bbf7d0; }
+  .cap-feedback.warn { background: #fef3c7; color: #92400e;        border-color: #fcd34d; }
+  .cap-feedback strong { color: inherit; font-weight: 700; }
+
+  .btn {
+    border: none; border-radius: 10px; padding: 14px 16px;
+    font-size: 16px; font-weight: 700; cursor: pointer;
+    color: white; width: 100%; font-family: inherit;
+  }
+  .btn-primary { background: var(--primary); }
+  .btn-primary:active { background: var(--primary-dark); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* === Pendientes list (read-only) === */
+  .pend-row {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
+  }
+  .pend-row .fecha-box {
+    background: var(--primary-soft); color: var(--primary-dark);
+    padding: 6px 10px; border-radius: 6px;
+    font-size: 12px; font-weight: 700; min-width: 70px; text-align: center;
+    border: 1px solid #bbf7d0;
+  }
+  .pend-row .fecha-box.urgente { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+  .pend-row .info { flex: 1; }
+  .pend-row .info .cli { font-weight: 700; }
+  .pend-row .info .obs { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .pend-row .cant { font-weight: 800; color: var(--primary-dark); font-size: 16px; white-space: nowrap; }
+  .pend-row .cant small { font-size: 11px; color: var(--muted); font-weight: 500; }
+
+  .empty {
+    text-align: center; color: var(--muted); padding: 22px 10px;
+    background: var(--surface); border-radius: 10px;
+    border: 1px dashed var(--border);
+  }
+
+  .helper-links {
+    margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .helper-links a {
+    color: var(--primary-dark); text-decoration: none; font-size: 13px; font-weight: 600;
+    padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+    background: var(--text); color: white;
+    padding: 10px 18px; border-radius: 10px;
+    z-index: 200; font-size: 14px; font-weight: 600;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+    max-width: 90%; box-shadow: var(--shadow-lg);
+  }
+  .toast.show { opacity: 1; }
+  .toast.ok  { background: var(--ok); }
+  .toast.err { background: var(--warn); }
+
+  .status-bar {
+    text-align: center; color: var(--muted); font-size: 11px; padding: 12px 8px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><img src="logo.png" alt="PAVIMAX" onerror="this.outerHTML='PAVIMAX'"></div>
+  <span class="role">OFICINA</span>
+  <a class="link-app" href="index.html">App ↗</a>
+</header>
+
+<main>
+
+  <h1>Cargar pedido</h1>
+  <p class="lead">Esta página es para la oficina. Cargá pedidos nuevos para PAVIMAX. La app del operario los va a mostrar automáticamente.</p>
+
+  <div class="section-title">Capacidad próximos días</div>
+  <div class="cap-grid" id="capGrid"></div>
+
+  <div class="section-title">Nuevo pedido</div>
+  <div class="form-card">
+    <div class="field">
+      <label>Cliente</label>
+      <input type="text" id="cliente" list="clientes-list" placeholder="Elegí o escribí un nombre" autocomplete="off">
+      <datalist id="clientes-list"></datalist>
+    </div>
+    <div class="field">
+      <label>Cantidad de bolsas</label>
+      <input type="number" id="cantidad" inputmode="numeric" min="1" placeholder="ej. 50">
+    </div>
+    <div class="field">
+      <label>Fecha de entrega</label>
+      <input type="date" id="fecha">
+    </div>
+    <div class="field">
+      <label>Observación (opcional)</label>
+      <textarea id="observacion" placeholder="ej. bolsa blanca"></textarea>
+    </div>
+
+    <div class="cap-feedback" id="feedback" style="display:none"></div>
+
+    <button class="btn btn-primary" id="saveBtn">Cargar pedido</button>
+  </div>
+
+  <div class="section-title">Pedidos pendientes</div>
+  <div id="pendList"></div>
+  <div class="helper-links">
+    <a id="sheetLink" href="#" target="_blank">📋 Abrir planilla en Drive ↗</a>
+  </div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+<div class="status-bar" id="statusBar"></div>
+
+<script>
+/* ===== CONFIG ===== */
+const CONFIG = {
+  API_URL:   'https://script.google.com/macros/s/AKfycbwVT-G9YOvStVO12fwGfYLGfyag92uOssxx5YmfTN7WIbt1D7WacuLra-7zSI9Phzl2_g/exec',
+  SHEET_URL: 'https://docs.google.com/spreadsheets/d/1r3LxaldzRNRA3GMenSbOfPk1nXZkjQvo9BJOa01dqv0/edit?usp=sharing',
+  POLL_MS:   30000
+};
+
+const state = { capacidad: null, clientes: [], pendientes: [] };
+
+/* ===== INIT ===== */
+document.getElementById('sheetLink').href = CONFIG.SHEET_URL;
+document.getElementById('saveBtn').addEventListener('click', cargarPedido);
+document.getElementById('cantidad').addEventListener('input', updateFeedback);
+document.getElementById('fecha').addEventListener('change', updateFeedback);
+
+// Default fecha = hoy
+document.getElementById('fecha').value = new Date().toISOString().slice(0, 10);
+
+fetchAll();
+setInterval(fetchAll, CONFIG.POLL_MS);
+
+/* ===== FETCH ===== */
+async function fetchAll() {
+  try {
+    const r = await fetch(CONFIG.API_URL + '?action=all', { method: 'GET' });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'error');
+    state.capacidad  = j.data.capacidad  || null;
+    state.clientes   = j.data.clientes   || [];
+    state.pendientes = j.data.pendientes || [];
+    renderCapacidad();
+    renderClientes();
+    renderPendientes();
+    updateFeedback();
+    setStatus('última act. ' + new Date().toLocaleTimeString());
+  } catch (e) {
+    setStatus('error: ' + e.message, true);
+  }
+}
+
+/* ===== RENDER ===== */
+function renderCapacidad() {
+  const grid = document.getElementById('capGrid');
+  grid.innerHTML = '';
+  if (!state.capacidad || !state.capacidad.horizonte) return;
+  const horizonte = state.capacidad.horizonte.slice(0, 7);
+  const today = new Date().toISOString().slice(0, 10);
+  horizonte.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'cap-day';
+    const fechaObj = parseIso(d.fecha);
+    const lbl = d.fecha === today ? 'HOY'
+              : (d.dia_offset === 1 ? 'MAÑANA' : fmtShortDate(fechaObj));
+    const disp = d.disponible;
+    const cls = disp <= 0 ? 'danger' : (disp < state.capacidad.capacidad_diaria * 0.3 ? 'warn' : '');
+    el.innerHTML = `
+      <div class="lbl">${lbl}</div>
+      <div class="num ${cls}">${disp.toLocaleString('es-AR')}</div>
+      <div class="sub">disponibles</div>
+    `;
+    grid.appendChild(el);
+  });
+}
+
+function renderClientes() {
+  const dl = document.getElementById('clientes-list');
+  dl.innerHTML = '';
+  state.clientes.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    dl.appendChild(opt);
+  });
+}
+
+function renderPendientes() {
+  const list = document.getElementById('pendList');
+  list.innerHTML = '';
+  if (state.pendientes.length === 0) {
+    list.innerHTML = '<div class="empty">No hay pedidos pendientes 🎉</div>';
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  state.pendientes.forEach(p => {
+    const el = document.createElement('div');
+    el.className = 'pend-row';
+    const fechaTxt = p.fecha_entrega_solicitada || '—';
+    const urgente = p.fecha_entrega_iso && p.fecha_entrega_iso <= today;
+    el.innerHTML = `
+      <div class="fecha-box ${urgente ? 'urgente' : ''}">${fechaTxt}</div>
+      <div class="info">
+        <div class="cli"></div>
+        <div class="obs"></div>
+      </div>
+      <div class="cant"><span class="qty"></span> <small>bolsas</small></div>
+    `;
+    el.querySelector('.cli').textContent = p.cliente || '';
+    el.querySelector('.obs').textContent = p.observacion_pedido || '';
+    el.querySelector('.qty').textContent = p.cantidad_bolsas;
+    list.appendChild(el);
+  });
+}
+
+/* ===== FEEDBACK DE CAPACIDAD ===== */
+function updateFeedback() {
+  const cant = Number(document.getElementById('cantidad').value) || 0;
+  const fecha = document.getElementById('fecha').value;
+  const el = document.getElementById('feedback');
+  if (!cant || !fecha) { el.style.display = 'none'; return; }
+  const cap = state.capacidad && state.capacidad.horizonte;
+  if (!cap) { el.style.display = 'none'; return; }
+
+  const day = cap.find(d => d.fecha === fecha);
+  if (!day) {
+    // Fecha fuera del horizonte de 14 días
+    el.style.display = '';
+    el.className = 'cap-feedback ok';
+    el.innerHTML = `Fecha fuera del horizonte de 14 días — vas a tener tiempo de sobra para producir las <strong>${cant}</strong> bolsas.`;
+    return;
+  }
+
+  const disp = day.disponible;
+  el.style.display = '';
+  if (cant <= disp) {
+    el.className = 'cap-feedback ok';
+    el.innerHTML = `✓ Para esa fecha tenés <strong>${disp.toLocaleString('es-AR')}</strong> bolsas disponibles. Si cargás este pedido te quedan <strong>${(disp - cant).toLocaleString('es-AR')}</strong>.`;
+  } else {
+    const falta = cant - disp;
+    // Buscar primera fecha donde alcance
+    const prox = cap.find(d => d.disponible >= cant);
+    let sugerencia = '';
+    if (prox) {
+      const f = formatIso(prox.fecha);
+      sugerencia = ` La fecha más temprana donde sí entran las ${cant.toLocaleString('es-AR')} bolsas es el <strong>${f}</strong>.`;
+    } else {
+      sugerencia = ' No alcanza ni en el horizonte de 14 días. Reducí la cantidad o coordiná con producción.';
+    }
+    el.className = 'cap-feedback warn';
+    el.innerHTML = `⚠ Para esa fecha solo tenés <strong>${disp.toLocaleString('es-AR')}</strong> bolsas disponibles. Te <strong>faltan ${falta.toLocaleString('es-AR')}</strong>.${sugerencia}`;
+  }
+}
+
+/* ===== CARGAR PEDIDO ===== */
+async function cargarPedido() {
+  const cliente = document.getElementById('cliente').value.trim();
+  const cantidad = Number(document.getElementById('cantidad').value);
+  const fecha = document.getElementById('fecha').value;
+  const obs = document.getElementById('observacion').value.trim();
+
+  if (!cliente) { toast('Falta el cliente', 'err'); return; }
+  if (!cantidad || cantidad <= 0) { toast('Cantidad inválida', 'err'); return; }
+  if (!fecha) { toast('Falta la fecha de entrega', 'err'); return; }
+
+  // Pasarse de capacidad → pedir confirmación
+  const cap = state.capacidad && state.capacidad.horizonte;
+  if (cap) {
+    const day = cap.find(d => d.fecha === fecha);
+    if (day && cantidad > day.disponible) {
+      const falta = cantidad - day.disponible;
+      if (!confirm(`⚠ Te faltan ${falta} bolsas para esa fecha. ¿Querés cargar el pedido igual?`)) return;
+    }
+  }
+
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; btn.textContent = 'Cargando…';
+  try {
+    const r = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'cargarPedido',
+        cliente, cantidad, fecha_entrega: fecha, observacion: obs
+      })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'error');
+    toast(`✓ Pedido #${j.data.id} cargado`, 'ok');
+    // Reset form (menos fecha que queda en hoy)
+    document.getElementById('cliente').value = '';
+    document.getElementById('cantidad').value = '';
+    document.getElementById('observacion').value = '';
+    document.getElementById('feedback').style.display = 'none';
+    fetchAll();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Cargar pedido';
+  }
+}
+
+/* ===== UTILIDADES ===== */
+function parseIso(s) {
+  const p = s.split('-');
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+}
+function fmtShortDate(d) {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return dd + '/' + mm;
+}
+function formatIso(s) {
+  const p = s.split('-');
+  return p[2] + '/' + p[1] + '/' + p[0];
+}
+
+let toastTimer;
+function toast(msg, kind) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (kind || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); }, 2800);
+}
+function setStatus(msg, isError) {
+  const b = document.getElementById('statusBar');
+  b.textContent = msg;
+  b.style.color = isError ? 'var(--warn)' : 'var(--muted)';
+}
+</script>
+</body>
+</html>
