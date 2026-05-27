@@ -149,20 +149,37 @@
   .toggle.on::after { transform: translateX(20px); }
 
   /* Parciales list */
-  .parciales-list { display: flex; flex-direction: column; gap: 8px; }
+  .parciales-list { display: flex; flex-direction: column; gap: 10px; }
   .parcial-row {
     display: grid; grid-template-columns: 1fr 110px 36px;
     gap: 8px; align-items: center;
   }
   .parcial-row input[type="date"], .parcial-row input[type="number"] {
-    padding: 10px; font-size: 15px; background: var(--surface-2);
+    padding: 10px 12px; font-size: 15px; background: var(--surface-2);
+    color: var(--text);
     border: 1px solid var(--border); border-radius: 8px; width: 100%;
-    font-family: inherit;
+    font-family: inherit; height: 42px;
+    -webkit-appearance: none; appearance: none;
+    min-width: 0; /* permite que el input se achique en grid */
+  }
+  .parcial-row input[type="date"]::-webkit-date-and-time-value {
+    text-align: left;
   }
   .parcial-row .del-btn {
     background: var(--surface-2); border: 1px solid var(--border);
-    color: var(--warn); border-radius: 8px; padding: 8px; cursor: pointer;
-    font-size: 16px; height: 38px;
+    color: var(--warn); border-radius: 8px; padding: 0; cursor: pointer;
+    font-size: 18px; height: 42px; width: 36px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* En pantallas angostas, fecha en una fila y cantidad+borrar en la otra */
+  @media (max-width: 480px) {
+    .parcial-row {
+      grid-template-columns: 1fr 36px;
+      row-gap: 6px;
+    }
+    .parcial-row input[type="date"] {
+      grid-column: 1 / -1;
+    }
   }
   .parcial-add {
     background: var(--surface-2); border: 1px dashed var(--border);
