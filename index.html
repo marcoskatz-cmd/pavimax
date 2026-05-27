@@ -26,6 +26,8 @@
     --ok: #16a34a;
     --ok-dark: #15803d;
     --warn: #dc2626;
+    --info: #1e40af;
+    --info-soft: #dbeafe;
     --tag-bg: #fef3c7;
     --tag-text: #92400e;
     --tag-border: #fcd34d;
@@ -112,6 +114,17 @@
   .card .entrega-info.urgente {
     background: #fef2f2; color: #991b1b; border-color: #fecaca;
   }
+  .card .parcial-info {
+    background: var(--info-soft); color: var(--info);
+    border: 1px solid #bfdbfe;
+    padding: 6px 10px; border-radius: 6px;
+    font-size: 12px; font-weight: 600;
+    display: inline-block;
+  }
+  .card .saldo-info {
+    font-size: 13px; color: var(--muted);
+  }
+  .card .saldo-info strong { color: var(--primary-dark); }
 
   /* ===== Instrucciones home ===== */
   .help-card {
@@ -169,6 +182,7 @@
   .card .cliente { font-size: 18px; font-weight: 700; color: var(--text); }
   .card .cantidad {
     font-size: 26px; font-weight: 800; color: var(--primary-dark); white-space: nowrap;
+    text-align: right;
   }
   .card .cantidad small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 4px; }
   .card .fecha { font-size: 12px; color: var(--muted); }
@@ -233,18 +247,34 @@
     display: block; font-size: 13px; color: var(--muted);
     margin-bottom: 6px; font-weight: 600;
   }
+  .form-card label .req { color: var(--warn); }
   .form-card input[type="number"],
   .form-card input[type="text"],
-  .form-card textarea {
+  .form-card textarea,
+  .form-card select {
     width: 100%; background: var(--surface-2); border: 1px solid var(--border);
     color: var(--text); padding: 14px; border-radius: 10px;
     font-size: 18px; font-family: inherit;
   }
-  .form-card input:focus, .form-card textarea:focus {
+  .form-card select {
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center;
+    padding-right: 36px;
+  }
+  .form-card input:focus, .form-card textarea:focus, .form-card select:focus {
     outline: none; border-color: var(--primary); background: var(--surface);
   }
   .form-card textarea { font-size: 15px; resize: vertical; min-height: 80px; }
   .field { margin-bottom: 14px; }
+
+  .saldo-block {
+    background: var(--info-soft); color: var(--info);
+    border: 1px solid #bfdbfe;
+    padding: 10px 14px; border-radius: 10px;
+    font-size: 14px; margin-bottom: 12px;
+  }
+  .saldo-block strong { font-size: 16px; font-weight: 800; }
 
   /* ===== Modal ===== */
   .modal-bg {
@@ -269,6 +299,8 @@
   .modal .photo-area img { max-width: 100%; max-height: 280px; border-radius: 8px; }
   .modal .actions { display: flex; gap: 8px; margin-top: 16px; }
   .modal .actions .btn { flex: 1; }
+  .modal .label-inline { font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 600; display: block; }
+  .modal .label-inline .req { color: var(--warn); }
 
   /* ===== Toast ===== */
   .toast {
@@ -335,7 +367,7 @@
     <div class="help-card">
       <div class="help-title">💡 Cómo usar</div>
       <ol>
-        <li>Tocá <strong>Pedidos</strong> para ver lo pendiente. Cuando esté listo para entregar, tocá <strong>ENTREGAR</strong>, sacá una foto del remito, poné una observación si la hay y tocá <strong>Confirmar entrega</strong>.</li>
+        <li>Tocá <strong>Pedidos</strong> para ver lo pendiente. Cuando vayas a entregar, tocá <strong>ENTREGAR</strong>, elegí tu nombre, confirmá la cantidad (podés entregar menos que el saldo), sacá foto del remito y tocá <strong>Confirmar entrega</strong>.</li>
         <li>Cuando haya producción, andá a <strong>Producción</strong> y cargá cuántas bolsas se hicieron.</li>
         <li>Los remitos de cada entrega quedan en cada pedido entregado — tocá <strong>Ver remito ↗</strong>.</li>
       </ol>
@@ -382,8 +414,22 @@
     <h2>Entregar pedido</h2>
     <div class="sub" id="modalSub"></div>
 
+    <div class="saldo-block" id="modalSaldo"></div>
+
     <div class="field">
-      <label>Foto del remito</label>
+      <label class="label-inline">Entregado por <span class="req">*</span></label>
+      <select id="usuarioEntrega">
+        <option value="">— Elegí tu nombre —</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="label-inline">Cantidad a entregar <span class="req">*</span></label>
+      <input type="number" id="cantEntrega" inputmode="numeric" min="1">
+    </div>
+
+    <div class="field">
+      <label class="label-inline">Foto del remito</label>
       <div class="photo-area" id="photoArea" onclick="document.getElementById('photoInput').click()">
         <span id="photoHint">Tocá para tomar la foto</span>
         <img id="photoPreview" style="display:none">
@@ -392,7 +438,7 @@
     </div>
 
     <div class="field">
-      <label>Observación (opcional)</label>
+      <label class="label-inline">Observación (opcional)</label>
       <textarea id="obsEntrega" placeholder="Ej: cliente reclamó 2 bolsas con humedad…"></textarea>
     </div>
 
@@ -418,10 +464,10 @@ const CONFIG = {
 /* ===== STATE ===== */
 const state = {
   view: 'home',
-  pendientes: [], entregados: [], stock: {}, produccion: [],
+  pendientes: [], entregados: [], stock: {}, produccion: [], usuarios: [],
   knownIds: new Set(), firstLoad: true,
   soundOn: false,
-  modalId: null, fotoB64: null, fotoMime: 'image/jpeg',
+  modalId: null, modalSaldo: 0, fotoB64: null, fotoMime: 'image/jpeg',
   swReg: null
 };
 
@@ -496,11 +542,9 @@ function beep(freq, ms) {
 }
 
 function notifyNewOrder(p) {
-  // Sonido (no debe romper si Audio falla)
   if (state.soundOn) {
     try { beep(880, 150); setTimeout(() => beep(1100, 200), 180); } catch (_) {}
   }
-  // Notificación visual — preferir Service Worker (requerido en Chrome Android moderno)
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const title = 'Nuevo pedido — PAVIMAX';
   const opts = {
@@ -515,10 +559,7 @@ function notifyNewOrder(p) {
     } else {
       new Notification(title, opts);
     }
-  } catch (_) {
-    // En Chrome Android sin SW falla con "Illegal constructor" — lo silenciamos
-    // para no romper el polling.
-  }
+  } catch (_) {}
 }
 
 /* ===== FETCH ===== */
@@ -537,7 +578,7 @@ async function fetchAll() {
     if (!state.firstLoad) {
       ped.forEach(p => {
         if (!prev.has(String(p.id))) {
-          try { notifyNewOrder(p); } catch (_) { /* nunca debe romper el ciclo */ }
+          try { notifyNewOrder(p); } catch (_) {}
         }
       });
     }
@@ -545,6 +586,7 @@ async function fetchAll() {
     state.entregados = j.data.entregados || [];
     state.stock      = j.data.stock || {};
     state.produccion = j.data.produccion || [];
+    state.usuarios   = j.data.usuarios || [];
     state.knownIds   = ids;
     state.firstLoad  = false;
     render();
@@ -585,7 +627,6 @@ function render() {
   document.getElementById('stockVen').textContent  = fmtNum(state.stock.total_vendido);
   document.getElementById('stockAct').textContent  = fmtNum(state.stock.stock_actual);
 
-  // Lista de últimas cargas de producción
   const pl = document.getElementById('produccionList');
   pl.innerHTML = '';
   if (state.produccion.length === 0) {
@@ -605,31 +646,54 @@ function render() {
 function cardPendiente(p) {
   const el = document.createElement('div');
   el.className = 'card';
+  const saldo = Number(p.saldo) || Number(p.cantidad_bolsas) || 0;
+  const entregado = Number(p.cantidad_entregada) || 0;
+  const total = Number(p.cantidad_bolsas) || 0;
+  const tieneParcial = entregado > 0;
+  const nParciales = (p.parciales_pendientes || []).length;
+
   el.innerHTML = `
     <div class="row1">
       <div class="cliente"></div>
-      <div class="cantidad"><span class="qty"></span><small> bolsas</small></div>
+      <div class="cantidad">
+        <span class="qty"></span><small> bolsas saldo</small>
+      </div>
     </div>
     <div class="entrega-info" style="display:none"></div>
+    <div class="parcial-info" style="display:none"></div>
+    <div class="saldo-info" style="display:none"></div>
     <div class="tag" style="display:none"></div>
     <div class="fecha"></div>
     <button class="btn btn-ok">ENTREGAR</button>
   `;
   el.querySelector('.cliente').textContent = p.cliente;
-  el.querySelector('.qty').textContent = p.cantidad_bolsas;
+  el.querySelector('.qty').textContent = saldo;
 
-  // Fecha objetivo de entrega (prominente, roja si es hoy o pasada)
   const ent = el.querySelector('.entrega-info');
-  if (p.fecha_entrega_solicitada) {
+  if (p.proxima_fecha) {
     ent.style.display = '';
-    ent.textContent = '📅 Entregar el ' + p.fecha_entrega_solicitada;
-    if (p.fecha_entrega_iso) {
+    const cantProx = Number(p.proxima_cantidad) || 0;
+    ent.textContent = '📅 Próxima entrega: ' + p.proxima_fecha +
+                      (cantProx ? ` (${cantProx} bolsas)` : '');
+    if (p.proxima_fecha_iso) {
       const d = new Date();
       const hoy = d.getFullYear() + '-' +
                   String(d.getMonth() + 1).padStart(2, '0') + '-' +
                   String(d.getDate()).padStart(2, '0');
-      if (p.fecha_entrega_iso <= hoy) ent.classList.add('urgente');
+      if (p.proxima_fecha_iso <= hoy) ent.classList.add('urgente');
     }
+  }
+
+  const parc = el.querySelector('.parcial-info');
+  if (nParciales > 1) {
+    parc.style.display = '';
+    parc.textContent = `📋 ${nParciales} entregas planeadas`;
+  }
+
+  const saldoInfo = el.querySelector('.saldo-info');
+  if (tieneParcial) {
+    saldoInfo.style.display = '';
+    saldoInfo.innerHTML = `Total: ${fmtNum(total)} · Ya entregado: <strong>${fmtNum(entregado)}</strong>`;
   }
 
   const tag = el.querySelector('.tag');
@@ -656,11 +720,15 @@ function cardEntregado(x) {
   `;
   el.querySelector('.cliente').textContent = x.cliente;
   el.querySelector('.qty').textContent = x.cantidad_bolsas;
+  const nEnt = (x.entregas || []).length;
+  const usuario = x.usuario_entrega ? ' · por ' + x.usuario_entrega : '';
   el.querySelector('.meta').textContent =
-    (x.fecha_entrega ? 'Entregado: ' + x.fecha_entrega : '') +
+    (x.fecha_entrega ? 'Última entrega: ' + x.fecha_entrega : '') +
+    (nEnt > 1 ? ` · ${nEnt} entregas` : '') +
+    usuario +
     (x.observacion_pedido ? ' · ' + x.observacion_pedido : '');
   const obs = el.querySelector('.obs');
-  if (x.observacion_entrega) obs.textContent = '“' + x.observacion_entrega + '”';
+  if (x.observacion_entrega) obs.textContent = '"' + x.observacion_entrega + '"';
   if (x.link_remito) {
     const a = el.querySelector('.rem');
     a.href = x.link_remito;
@@ -678,9 +746,34 @@ function fmtNum(n) {
 function openModal(p) {
   state.modalId = p.id;
   state.fotoB64 = null;
+  const saldo = Number(p.saldo) || Number(p.cantidad_bolsas) || 0;
+  state.modalSaldo = saldo;
+  const proxCant = Number(p.proxima_cantidad) || saldo;
+  const sugerido = Math.min(proxCant, saldo);
+
   document.getElementById('modalSub').textContent =
-    p.cliente + ' — ' + p.cantidad_bolsas + ' bolsas' +
+    p.cliente + ' — total ' + p.cantidad_bolsas + ' bolsas' +
     (p.observacion_pedido ? ' (' + p.observacion_pedido + ')' : '');
+  document.getElementById('modalSaldo').innerHTML =
+    `Saldo pendiente: <strong>${fmtNum(saldo)} bolsas</strong>` +
+    (p.proxima_fecha ? ` · Próxima planeada: ${fmtNum(proxCant)} el ${p.proxima_fecha}` : '');
+
+  // Llenar selector de usuario
+  const sel = document.getElementById('usuarioEntrega');
+  sel.innerHTML = '<option value="">— Elegí tu nombre —</option>';
+  state.usuarios.forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u; opt.textContent = u;
+    sel.appendChild(opt);
+  });
+  const ultimo = localStorage.getItem('pavimax_usuario_entrega');
+  if (ultimo && state.usuarios.includes(ultimo)) sel.value = ultimo;
+
+  // Cantidad pre-rellenada con la próxima parcial (o el saldo)
+  const cantInp = document.getElementById('cantEntrega');
+  cantInp.value = sugerido;
+  cantInp.max = saldo;
+
   document.getElementById('obsEntrega').value = '';
   document.getElementById('photoPreview').style.display = 'none';
   document.getElementById('photoPreview').src = '';
@@ -739,19 +832,36 @@ function compressImage(file, maxSide, quality) {
 
 async function confirmarEntrega() {
   if (!state.modalId) return;
+  const usuario = document.getElementById('usuarioEntrega').value;
+  if (!usuario) { toast('Elegí tu nombre', 'err'); return; }
+  const cantidad = Number(document.getElementById('cantEntrega').value);
+  if (!cantidad || cantidad <= 0) { toast('Cantidad inválida', 'err'); return; }
+  if (cantidad > state.modalSaldo) {
+    toast(`No podés entregar más que el saldo (${state.modalSaldo})`, 'err'); return;
+  }
   if (!state.fotoB64) {
     if (!confirm('No cargaste foto del remito. ¿Confirmar igual?')) return;
   }
+  const esCompleta = cantidad >= state.modalSaldo;
+  if (!esCompleta) {
+    if (!confirm(`Vas a entregar ${cantidad} de ${state.modalSaldo} bolsas. Queda saldo de ${state.modalSaldo - cantidad}. ¿Confirmar?`)) return;
+  }
+
   const btn = document.getElementById('confirmarBtn');
   btn.disabled = true; btn.textContent = 'Enviando…';
   try {
     const r = await postAction({
-      action: 'entregar', id: state.modalId,
+      action: 'entregar',
+      id: state.modalId,
+      cantidad,
+      usuario_entrega: usuario,
       observacion: document.getElementById('obsEntrega').value.trim(),
-      foto_base64: state.fotoB64 || '', foto_mime: state.fotoMime
+      foto_base64: state.fotoB64 || '',
+      foto_mime: state.fotoMime
     });
     if (!r.ok) throw new Error(r.error || 'error');
-    toast('Entrega registrada ✓', 'ok');
+    localStorage.setItem('pavimax_usuario_entrega', usuario);
+    toast(esCompleta ? 'Pedido entregado ✓' : `Parcial registrada (saldo ${state.modalSaldo - cantidad}) ✓`, 'ok');
     closeModal();
     fetchAll();
   } catch (e) {
