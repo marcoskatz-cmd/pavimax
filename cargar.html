@@ -371,12 +371,12 @@
     </div>
 
     <div class="field" id="fechaSimpleField">
-      <label>Fecha de entrega <span class="req">*</span></label>
+      <label>Fecha de entrega <small style="color: var(--muted); font-weight: 500; text-transform: none;">— dejala vacía si todavía no está pautada</small></label>
       <input type="date" id="fecha">
     </div>
 
     <div class="field" id="parcialesField" style="display:none">
-      <label>Parciales — la suma debe ser igual al total</label>
+      <label>Parciales — la suma debe ser igual al total. La fecha de cada parcial es opcional.</label>
       <div class="parciales-list" id="parcialesList"></div>
       <button class="parcial-add" id="addParcialBtn" type="button">➕ Agregar parcial</button>
       <div class="parcial-suma" id="parcialSuma" style="margin-top: 8px;">Suma: 0 / 0</div>
@@ -825,14 +825,14 @@ async function cargarPedido() {
   let fechaSimple = '';
   if (state.parcialesMode) {
     parciales = state.parcialesForm
-      .filter(p => p.fecha && Number(p.cantidad) > 0)
-      .map(p => ({ fecha_entrega: p.fecha, cantidad: Number(p.cantidad) }));
+      .filter(p => Number(p.cantidad) > 0)
+      .map(p => ({ fecha_entrega: p.fecha || '', cantidad: Number(p.cantidad) }));
     const suma = parciales.reduce((s, p) => s + p.cantidad, 0);
     if (parciales.length === 0) { toast('Agregá al menos una parcial', 'err'); return; }
     if (suma !== cantidad) { toast(`Suma de parciales (${suma}) ≠ total (${cantidad})`, 'err'); return; }
   } else {
     fechaSimple = document.getElementById('fecha').value;
-    if (!fechaSimple) { toast('Falta la fecha de entrega', 'err'); return; }
+    // fecha opcional: si está vacía se envía como '' y el backend la guarda sin fecha
   }
 
   // Warning si alguna fecha no tiene capacidad — confirmar
@@ -863,7 +863,7 @@ async function cargarPedido() {
       observacion: obs
     };
     if (parciales) body.parciales = parciales;
-    else           body.fecha_entrega = fechaSimple;
+    else           body.fecha_entrega = fechaSimple; // puede ser ''
 
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
@@ -899,11 +899,11 @@ function openEditModal(id) {
   state.editingId = p.id;
   state.editSaldo = Number(p.saldo) || 0;
   state.editParciales = (p.parciales_pendientes || []).map(pa => ({
-    fecha: pa.fecha_iso || todayIso(),
+    fecha: pa.fecha_iso || '',
     cantidad: pa.cantidad
   }));
   if (state.editParciales.length === 0) {
-    state.editParciales = [{ fecha: todayIso(), cantidad: state.editSaldo }];
+    state.editParciales = [{ fecha: '', cantidad: state.editSaldo }];
   }
   document.getElementById('editSub').textContent =
     `${p.cliente} — total ${fmtNum(p.cantidad_bolsas)}` +
@@ -948,7 +948,7 @@ function renderEditParciales() {
     btn.addEventListener('click', (e) => {
       const i = Number(e.target.dataset.i);
       state.editParciales.splice(i, 1);
-      if (state.editParciales.length === 0) state.editParciales = [{ fecha: todayIso(), cantidad: state.editSaldo }];
+      if (state.editParciales.length === 0) state.editParciales = [{ fecha: '', cantidad: state.editSaldo }];
       renderEditParciales();
       updateEditParcialSuma();
       updateEditFeedback();
@@ -1011,8 +1011,8 @@ function updateEditFeedback() {
 async function saveEditParciales() {
   if (!state.editingId) return;
   const parciales = state.editParciales
-    .filter(p => p.fecha && Number(p.cantidad) > 0)
-    .map(p => ({ fecha_entrega: p.fecha, cantidad: Number(p.cantidad) }));
+    .filter(p => Number(p.cantidad) > 0)
+    .map(p => ({ fecha_entrega: p.fecha || '', cantidad: Number(p.cantidad) }));
   if (parciales.length === 0) { toast('Agregá al menos una parcial', 'err'); return; }
   const suma = parciales.reduce((s, p) => s + p.cantidad, 0);
   if (suma !== state.editSaldo) {

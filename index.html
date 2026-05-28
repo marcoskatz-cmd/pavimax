@@ -421,6 +421,10 @@
       <select id="usuarioEntrega">
         <option value="">— Elegí tu nombre —</option>
       </select>
+      <input type="text" id="usuarioEntregaNuevo"
+             placeholder="Nombre del nuevo usuario"
+             autocomplete="off"
+             style="display:none; margin-top: 8px; width: 100%; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 14px; border-radius: 10px; font-size: 17px; font-family: inherit;">
     </div>
 
     <div class="field">
@@ -488,6 +492,18 @@ document.getElementById('cancelarBtn').addEventListener('click', closeModal);
 document.getElementById('confirmarBtn').addEventListener('click', confirmarEntrega);
 document.getElementById('photoInput').addEventListener('change', handlePhoto);
 document.getElementById('prodBtn').addEventListener('click', guardarProduccion);
+document.getElementById('usuarioEntrega').addEventListener('change', onUsuarioEntregaChange);
+
+function onUsuarioEntregaChange(e) {
+  const inp = document.getElementById('usuarioEntregaNuevo');
+  if (e.target.value === '__new__') {
+    inp.style.display = '';
+    setTimeout(() => inp.focus(), 50);
+  } else {
+    inp.style.display = 'none';
+    inp.value = '';
+  }
+}
 
 window.addEventListener('hashchange', syncFromHash);
 syncFromHash();
@@ -766,8 +782,15 @@ function openModal(p) {
     opt.value = u; opt.textContent = u;
     sel.appendChild(opt);
   });
+  const optNew = document.createElement('option');
+  optNew.value = '__new__'; optNew.textContent = '➕ Agregar nuevo usuario';
+  sel.appendChild(optNew);
   const ultimo = localStorage.getItem('pavimax_usuario_entrega');
   if (ultimo && state.usuarios.includes(ultimo)) sel.value = ultimo;
+  // Reset input nuevo
+  const inpNuevo = document.getElementById('usuarioEntregaNuevo');
+  inpNuevo.value = '';
+  inpNuevo.style.display = 'none';
 
   // Cantidad pre-rellenada con la próxima parcial (o el saldo)
   const cantInp = document.getElementById('cantEntrega');
@@ -832,7 +855,12 @@ function compressImage(file, maxSide, quality) {
 
 async function confirmarEntrega() {
   if (!state.modalId) return;
-  const usuario = document.getElementById('usuarioEntrega').value;
+  const selValue = document.getElementById('usuarioEntrega').value;
+  let usuario = selValue;
+  if (selValue === '__new__') {
+    usuario = document.getElementById('usuarioEntregaNuevo').value.trim();
+    if (!usuario) { toast('Escribí el nombre del nuevo usuario', 'err'); return; }
+  }
   if (!usuario) { toast('Elegí tu nombre', 'err'); return; }
   const cantidad = Number(document.getElementById('cantEntrega').value);
   if (!cantidad || cantidad <= 0) { toast('Cantidad inválida', 'err'); return; }
@@ -850,6 +878,11 @@ async function confirmarEntrega() {
   const btn = document.getElementById('confirmarBtn');
   btn.disabled = true; btn.textContent = 'Enviando…';
   try {
+    // Si es usuario nuevo, primero lo agregamos
+    if (selValue === '__new__') {
+      const rAdd = await postAction({ action: 'addUsuario', nombre: usuario });
+      if (!rAdd.ok) throw new Error('No se pudo agregar el usuario: ' + (rAdd.error || ''));
+    }
     const r = await postAction({
       action: 'entregar',
       id: state.modalId,

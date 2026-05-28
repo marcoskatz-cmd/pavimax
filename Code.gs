@@ -26,7 +26,7 @@ const SH_CONFIG     = 'CONFIG';
 // === DEFAULTS ===
 const CAPACIDAD_DIARIA_DEFAULT = 120;  // bolsas/día si CONFIG no tiene valor
 const HORIZONTE_DIAS           = 14;   // ventana hacia adelante para calcular capacidad
-const USUARIOS_SEED            = ['Julia Katz', 'Agustin De Gregorio'];
+const USUARIOS_SEED            = ['Julia Katz', 'Agustin De Gregorio', 'Gerardo Guerrero'];
 
 // === ESTILO ===
 const COLOR_BRAND       = '#157f3d';
@@ -463,20 +463,17 @@ function cargarPedido(body) {
   if (!cantidad || cantidad <= 0) throw new Error('Cantidad inválida');
   if (!usuarioCarga) throw new Error('Falta usuario_carga');
 
-  // Resolver parciales
+  // Resolver parciales — la fecha es opcional (pedidos "a favor" sin fecha pautada)
   let parciales = Array.isArray(body.parciales) ? body.parciales.slice() : [];
   if (parciales.length === 0) {
     const fechaStr = String(body.fecha_entrega || '').trim();
-    if (!fechaStr) throw new Error('Falta fecha de entrega');
     parciales = [{ fecha_entrega: fechaStr, cantidad: cantidad }];
   }
-  // Validar parciales
   const parsedParciales = parciales.map(p => {
     const f = String(p.fecha_entrega || '').trim();
     const c = Number(p.cantidad);
-    if (!f) throw new Error('Parcial sin fecha');
     if (!c || c <= 0) throw new Error('Parcial con cantidad inválida');
-    return { fecha: parseIsoDate_(f), cantidad: c };
+    return { fecha: f ? parseIsoDate_(f) : null, cantidad: c };
   });
   const sumaP = parsedParciales.reduce((s, p) => s + p.cantidad, 0);
   if (sumaP !== cantidad) {
@@ -507,10 +504,11 @@ function cargarPedido(body) {
   }
   const id = maxId + 1;
 
-  // Construir fila del pedido. fecha_entrega_solicitada = fecha de la primera parcial (compat).
-  const fechaPrimera = parsedParciales
-    .slice()
-    .sort((a, b) => a.fecha.getTime() - b.fecha.getTime())[0].fecha;
+  // Construir fila del pedido. fecha_entrega_solicitada = fecha de la primera parcial con fecha (compat).
+  const conFecha = parsedParciales.filter(p => p.fecha);
+  const fechaPrimera = conFecha.length
+    ? conFecha.slice().sort((a, b) => a.fecha.getTime() - b.fecha.getTime())[0].fecha
+    : '';
   const valMap = {
     'id': id,
     'fecha_carga': new Date(),
@@ -543,7 +541,7 @@ function cargarPedido(body) {
     const r = parcHeaders.map(h => {
       if (h === 'id_parcial')        return idParc;
       if (h === 'id_pedido')         return id;
-      if (h === 'fecha_planeada')    return p.fecha;
+      if (h === 'fecha_planeada')    return p.fecha || '';
       if (h === 'cantidad_planeada') return p.cantidad;
       if (h === 'estado')            return 'pendiente';
       return '';
@@ -683,9 +681,8 @@ function editarParciales(body) {
   const parsed = incoming.map(p => {
     const f = String(p.fecha_entrega || '').trim();
     const c = Number(p.cantidad);
-    if (!f) throw new Error('Parcial sin fecha');
     if (!c || c <= 0) throw new Error('Parcial con cantidad inválida');
-    return { fecha: parseIsoDate_(f), cantidad: c };
+    return { fecha: f ? parseIsoDate_(f) : null, cantidad: c };
   });
   const sumaNueva = parsed.reduce((s, p) => s + p.cantidad, 0);
 
@@ -750,7 +747,7 @@ function editarParciales(body) {
     const r = parcHeaders.map(h => {
       if (h === 'id_parcial')        return idParc;
       if (h === 'id_pedido')         return id;
-      if (h === 'fecha_planeada')    return p.fecha;
+      if (h === 'fecha_planeada')    return p.fecha || '';
       if (h === 'cantidad_planeada') return p.cantidad;
       if (h === 'estado')            return 'pendiente';
       return '';
