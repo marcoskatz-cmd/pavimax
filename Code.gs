@@ -24,9 +24,18 @@ const SH_PARCIALES  = 'ENTREGAS_PARCIALES';
 const SH_CONFIG     = 'CONFIG';
 
 // === DEFAULTS ===
-const CAPACIDAD_DIARIA_DEFAULT = 120;  // bolsas/día si CONFIG no tiene valor
+const CAPACIDAD_DIARIA_DEFAULT = 3000;  // kg/día si CONFIG no tiene valor (≈120 bolsas)
 const HORIZONTE_DIAS           = 14;   // ventana hacia adelante para calcular capacidad
 const USUARIOS_SEED            = ['Julia Katz', 'Agustin De Gregorio', 'Gerardo Guerrero'];
+
+// === PRODUCTOS (multi-producto: material en kg, emulsión en botellas sin stock/producción) ===
+const PRODUCTOS = ['bolsas_25kg', 'bigbag_1000kg', 'emul_1l', 'emul_5l', 'emul_20l'];
+const KG_POR = { bolsas_25kg: 25, bigbag_1000kg: 1000, emul_1l: 0, emul_5l: 0, emul_20l: 0 };
+const PARC_HEADERS = [
+  'id_parcial', 'id_pedido', 'fecha_planeada',
+  'bolsas_25kg', 'bigbag_1000kg', 'emul_1l', 'emul_5l', 'emul_20l',
+  'estado', 'fecha_entrega', 'observacion_entrega', 'link_remito', 'usuario_entrega'
+];
 
 // === ESTILO ===
 const COLOR_BRAND       = '#157f3d';
@@ -796,6 +805,28 @@ function getCapacidadDiaria() {
   return CAPACIDAD_DIARIA_DEFAULT;
 }
 
+function getConfigVal_(ss, clave) {
+  const sh = ss.getSheetByName(SH_CONFIG);
+  if (!sh || sh.getLastRow() < 2) return '';
+  const data = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() === clave) return data[i][1];
+  }
+  return '';
+}
+function setConfigVal_(ss, clave, valor) {
+  const sh = ss.getSheetByName(SH_CONFIG);
+  if (!sh) return;
+  const last = sh.getLastRow();
+  if (last >= 2) {
+    const data = sh.getRange(2, 1, last - 1, 2).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][0] || '').trim() === clave) { sh.getRange(i + 2, 2).setValue(valor); return; }
+    }
+  }
+  sh.appendRow([clave, valor]);
+}
+
 function setCapacidadDiaria(body) {
   const n = Number(body.capacidad_diaria);
   if (!n || n <= 0) throw new Error('Capacidad inválida');
@@ -856,6 +887,10 @@ function onEdit(e) {
 }
 
 // === HELPERS ===
+function materialKg_(obj) {
+  return (Number(obj.bolsas_25kg) || 0) * 25 + (Number(obj.bigbag_1000kg) || 0) * 1000;
+}
+
 function sumProducido_() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const prodSh = ss.getSheetByName(SH_PRODUCCION);
@@ -966,9 +1001,26 @@ function initSheets() {
 
   // --- PRODUCCION ---
   let prodLog = ss.getSheetByName(SH_PRODUCCION);
+  const PROD_HEADERS = ['fecha', 'bolsas_25kg', 'bigbag_1000kg', 'kg_total', 'operario'];
   if (!prodLog) {
     prodLog = ss.insertSheet(SH_PRODUCCION);
-    prodLog.appendRow(['fecha', 'bolsas_producidas', 'operario']);
+    prodLog.appendRow(PROD_HEADERS);
+  } else {
+    const h = prodLog.getRange(1, 1, 1, prodLog.getLastColumn()).getValues()[0].map(x => String(x).trim());
+    if (h.indexOf('kg_total') === -1) {
+      const rows = prodLog.getLastRow() >= 2
+        ? prodLog.getRange(2, 1, prodLog.getLastRow() - 1, prodLog.getLastColumn()).getValues() : [];
+      const iF = h.indexOf('fecha');
+      const iB = h.indexOf('bolsas_producidas') >= 0 ? h.indexOf('bolsas_producidas') : h.indexOf('bolsas_25kg');
+      const iO = h.indexOf('operario');
+      const migrated = rows.map(r => {
+        const bolsas = Number(r[iB]) || 0;
+        return [iF >= 0 ? r[iF] : '', bolsas, 0, bolsas * 25, iO >= 0 ? r[iO] : ''];
+      });
+      prodLog.clear();
+      prodLog.appendRow(PROD_HEADERS);
+      if (migrated.length) prodLog.getRange(2, 1, migrated.length, PROD_HEADERS.length).setValues(migrated);
+    }
   }
 
   // --- CLIENTES ---
@@ -1016,22 +1068,47 @@ function initSheets() {
     if (!has) cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
   }
 
+  // Migrar capacidad_diaria de bolsas → kg una sola vez
+  if (getConfigVal_(ss, 'capacidad_unidad') !== 'kg') {
+    const capViejo = Number(getConfigVal_(ss, 'capacidad_diaria')) || CAPACIDAD_DIARIA_DEFAULT;
+    setConfigVal_(ss, 'capacidad_diaria', capViejo * 25);
+    setConfigVal_(ss, 'capacidad_unidad', 'kg');
+  }
+
   // --- ENTREGAS_PARCIALES ---
   let parc = ss.getSheetByName(SH_PARCIALES);
-  const PARC_HEADERS = [
-    'id_parcial', 'id_pedido', 'fecha_planeada', 'cantidad_planeada',
-    'estado', 'fecha_entrega', 'cantidad_entregada',
-    'observacion_entrega', 'link_remito', 'usuario_entrega'
-  ];
   if (!parc) {
     parc = ss.insertSheet(SH_PARCIALES);
     parc.appendRow(PARC_HEADERS);
-    // Migrar pedidos existentes: por cada pedido, crear 1 parcial
     migrarPedidosAParciales_(ss);
   } else {
-    // Asegurar headers
-    parc.getRange(1, 1, 1, PARC_HEADERS.length).setValues([PARC_HEADERS]);
-    // Si hay pedidos sin parcial, generar
+    const hdr = parc.getRange(1, 1, 1, parc.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    if (hdr.indexOf('cantidad_planeada') !== -1 && hdr.indexOf('bolsas_25kg') === -1) {
+      // Migrar layout viejo (una sola cantidad) → multiproducto
+      const rows = parc.getLastRow() >= 2
+        ? parc.getRange(2, 1, parc.getLastRow() - 1, parc.getLastColumn()).getValues() : [];
+      const idx = name => hdr.indexOf(name);
+      const migrated = rows.map(r => {
+        const o = {};
+        PARC_HEADERS.forEach(h => { o[h] = ''; });
+        o.id_parcial          = r[idx('id_parcial')];
+        o.id_pedido           = r[idx('id_pedido')];
+        o.fecha_planeada      = r[idx('fecha_planeada')];
+        o.bolsas_25kg         = Number(r[idx('cantidad_planeada')]) || 0;
+        o.bigbag_1000kg = o.emul_1l = o.emul_5l = o.emul_20l = 0;
+        o.estado              = r[idx('estado')];
+        o.fecha_entrega       = idx('fecha_entrega')      >= 0 ? r[idx('fecha_entrega')]      : '';
+        o.observacion_entrega = idx('observacion_entrega')>= 0 ? r[idx('observacion_entrega')]: '';
+        o.link_remito          = idx('link_remito')        >= 0 ? r[idx('link_remito')]        : '';
+        o.usuario_entrega     = idx('usuario_entrega')    >= 0 ? r[idx('usuario_entrega')]    : '';
+        return PARC_HEADERS.map(h => o[h]);
+      });
+      parc.clear();
+      parc.appendRow(PARC_HEADERS);
+      if (migrated.length) parc.getRange(2, 1, migrated.length, PARC_HEADERS.length).setValues(migrated);
+    } else {
+      parc.getRange(1, 1, 1, PARC_HEADERS.length).setValues([PARC_HEADERS]);
+    }
     migrarPedidosAParciales_(ss);
   }
 
@@ -1040,61 +1117,67 @@ function initSheets() {
   if (!stock) {
     stock = ss.insertSheet(SH_STOCK);
     stock.getRange('A1:B5').setValues([
-      ['Concepto',        'Bolsas'],
+      ['Concepto',        'Kg'],
       ['Stock inicial',   0],
       ['Total producido', 0],
       ['Total vendido',   0],
       ['Stock actual',    0]
     ]);
+    setConfigVal_(ss, 'stock_unidad', 'kg');
   } else {
     const a1 = String(stock.getRange('A1').getValue()).toLowerCase().trim();
     if (a1 === 'stock_inicial' || a1 === '') {
       stock.insertRowBefore(1);
     }
-    stock.getRange('A1:B1').setValues([['Concepto', 'Bolsas']]);
     stock.getRange('A2').setValue('Stock inicial');
     stock.getRange('A3').setValue('Total producido');
     stock.getRange('A4').setValue('Total vendido');
     stock.getRange('A5').setValue('Stock actual');
+    // Migrar stock inicial de bolsas → kg una sola vez
+    if (getConfigVal_(ss, 'stock_unidad') !== 'kg') {
+      const ini = Number(stock.getRange('B2').getValue()) || 0;
+      stock.getRange('B2').setValue(ini * 25);
+      setConfigVal_(ss, 'stock_unidad', 'kg');
+    }
+    stock.getRange('A1:B1').setValues([['Concepto', 'Kg']]);
   }
 
   // --- PRODUCTO ---
   let prod = ss.getSheetByName(SH_PRODUCTO);
+  const PROD_ROWS = [
+    ['producto', 'unidad', 'costo', 'precio'],
+    ['bolsas_25kg',   'bolsa (25kg)',     0, 0],
+    ['bigbag_1000kg', 'big bag (1000kg)', 0, 0],
+    ['emul_1l',       'botella 1L',       0, 0],
+    ['emul_5l',       'botella 5L',       0, 0],
+    ['emul_20l',      'botella 20L',      0, 0]
+  ];
   if (!prod) {
     prod = ss.insertSheet(SH_PRODUCTO);
-    prod.getRange('A1:B7').setValues([
-      ['Concepto',         'Valor por bolsa ($)'],
-      ['Materia prima',    0],
-      ['Mano de obra',     0],
-      ['Envase',           0],
-      ['Otros',            0],
-      ['Costo total',      0],
-      ['Precio de venta',  0]
-    ]);
-  } else {
-    prod.getRange('A1:B1').setValues([['Concepto', 'Valor por bolsa ($)']]);
-    const pretty = ['Materia prima', 'Mano de obra', 'Envase', 'Otros', 'Costo total', 'Precio de venta'];
-    pretty.forEach((label, i) => prod.getRange(2 + i, 1).setValue(label));
+    prod.getRange(1, 1, PROD_ROWS.length, 4).setValues(PROD_ROWS);
+  } else if (String(prod.getRange('A1').getValue()).trim().toLowerCase() !== 'producto') {
+    // Layout viejo (costos de bolsa): preservar costo total (B6) y precio (B7) para bolsa
+    const costoBolsa  = Number(prod.getRange('B6').getValue()) || 0;
+    const precioBolsa = Number(prod.getRange('B7').getValue()) || 0;
+    prod.clear();
+    const rows = PROD_ROWS.map(r => r.slice());
+    rows[1][2] = costoBolsa; rows[1][3] = precioBolsa;  // fila bolsas_25kg
+    prod.getRange(1, 1, rows.length, 4).setValues(rows);
   }
 
   // --- GANANCIAS ---
   let gan = ss.getSheetByName(SH_GANANCIAS);
-  if (!gan) {
-    gan = ss.insertSheet(SH_GANANCIAS);
-    gan.getRange('A1:B7').setValues([
-      ['Concepto',           'Valor'],
-      ['Bolsas producidas',  0],
-      ['Bolsas vendidas',    0],
-      ['Costo total ($)',    0],
-      ['Ingresos ($)',       0],
-      ['Ganancia bruta ($)', 0],
-      ['Margen (%)',         0]
-    ]);
-  } else {
-    gan.getRange('A1:B1').setValues([['Concepto', 'Valor']]);
-    const pretty = ['Bolsas producidas','Bolsas vendidas','Costo total ($)','Ingresos ($)','Ganancia bruta ($)','Margen (%)'];
-    pretty.forEach((label, i) => gan.getRange(2 + i, 1).setValue(label));
-  }
+  const GAN_ROWS = [
+    ['Concepto', 'Valor'],
+    ['Material producido (kg)', 0],
+    ['Material vendido (kg)',   0],
+    ['Ingresos ($)',            0],
+    ['Costo total ($)',         0],
+    ['Ganancia bruta ($)',      0],
+    ['Margen (%)',              0]
+  ];
+  if (!gan) { gan = ss.insertSheet(SH_GANANCIAS); }
+  gan.getRange(1, 1, GAN_ROWS.length, 2).setValues(GAN_ROWS);
 
   reorderSheets_(ss, [SH_STOCK, SH_GANANCIAS, SH_PEDIDOS, SH_PARCIALES, SH_PRODUCCION, SH_USUARIOS, SH_CLIENTES, SH_PRODUCTO, SH_CONFIG]);
 
@@ -1163,10 +1246,9 @@ function migrarPedidosAParciales_(ss) {
         if (h === 'id_parcial')         return newId;
         if (h === 'id_pedido')          return idPed;
         if (h === 'fecha_planeada')     return fechaP;
-        if (h === 'cantidad_planeada')  return cantidad;
+        if (h === 'bolsas_25kg')        return cantidad;
         if (h === 'estado')             return 'entregada';
         if (h === 'fecha_entrega')      return fechaE;
-        if (h === 'cantidad_entregada') return cantidad;
         if (h === 'observacion_entrega')return obsE;
         if (h === 'link_remito')        return link;
         return '';
@@ -1177,7 +1259,7 @@ function migrarPedidosAParciales_(ss) {
         if (h === 'id_parcial')        return newId;
         if (h === 'id_pedido')         return idPed;
         if (h === 'fecha_planeada')    return fechaP;
-        if (h === 'cantidad_planeada') return cantidad;
+        if (h === 'bolsas_25kg')       return cantidad;
         if (h === 'estado')            return 'pendiente';
         return '';
       });
@@ -1284,21 +1366,23 @@ function applyFormatting_() {
   }
 
   // ENTREGAS_PARCIALES
+  // PARC_HEADERS: 1 id_parcial, 2 id_pedido, 3 fecha_planeada, 4-8 productos (bolsas_25kg..emul_20l),
+  // 9 estado, 10 fecha_entrega, 11 observacion_entrega, 12 link_remito, 13 usuario_entrega
   const parc = ss.getSheetByName(SH_PARCIALES);
   if (parc) {
-    const widths = [80, 80, 130, 130, 110, 130, 130, 200, 200, 150];
+    const widths = [80, 80, 130, 110, 120, 90, 90, 90, 110, 130, 200, 200, 150];
     formatList_(parc, {
-      cols: 10, widths,
+      cols: PARC_HEADERS.length, widths,
       headerHeight: 36, rowHeight: 26,
-      numberCols: [4, 7],
-      dateCols: [3, 6]
+      numberCols: [4, 5, 6, 7, 8],
+      dateCols: [3, 10]
     });
     parc.getRange(2, 3, parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy');
-    parc.getRange(2, 6, parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy HH:mm');
+    parc.getRange(2, 10, parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy HH:mm');
     parc.getRange(2, 1, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
     parc.getRange(2, 2, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
-    parc.getRange(2, 5, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
-    const estR = parc.getRange(2, 5, parc.getMaxRows() - 1, 1);
+    parc.getRange(2, 9, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
+    const estR = parc.getRange(2, 9, parc.getMaxRows() - 1, 1);
     const rulePend = SpreadsheetApp.newConditionalFormatRule()
       .whenTextEqualTo('pendiente')
       .setBackground(COLOR_PEND_BG).setFontColor(COLOR_PEND_TXT).setBold(true)
@@ -1314,12 +1398,12 @@ function applyFormatting_() {
   const prodLog = ss.getSheetByName(SH_PRODUCCION);
   if (prodLog) {
     formatList_(prodLog, {
-      cols: 3,
-      widths: [180, 180, 220],
+      cols: 5,
+      widths: [180, 130, 130, 130, 220],
       headerHeight: 36, rowHeight: 28,
-      numberCols: [2], dateCols: [1]
+      numberCols: [2, 3, 4], dateCols: [1]
     });
-    prodLog.getRange(2, 2, prodLog.getMaxRows() - 1, 1).setHorizontalAlignment('right');
+    prodLog.getRange(2, 2, prodLog.getMaxRows() - 1, 3).setHorizontalAlignment('right');
   }
 
   // CLIENTES
@@ -1359,23 +1443,21 @@ function applyFormatting_() {
   if (stock) {
     formatDashboard_(stock, {
       rows: 5,
-      valueFormat: '#,##0" bolsas"',
+      valueFormat: '#,##0" kg"',
       highlightRow: 5,
       colWidths: [260, 220]
     });
   }
 
-  // PRODUCTO
+  // PRODUCTO — ahora es tabla (1 fila por producto), no dashboard
   const prod = ss.getSheetByName(SH_PRODUCTO);
   if (prod) {
-    formatDashboard_(prod, {
-      rows: 7,
-      valueFormat: '"$" #,##0',
-      highlightRow: 6,
-      colWidths: [260, 220]
+    formatList_(prod, {
+      cols: 4,
+      widths: [160, 200, 130, 130],
+      headerHeight: 36, rowHeight: 30,
+      numberCols: [3, 4]
     });
-    prod.getRange('A2:B5').setBackground('#fffbeb');
-    prod.getRange('A7:B7').setBackground('#fffbeb');
   }
 
   // GANANCIAS
@@ -1386,7 +1468,7 @@ function applyFormatting_() {
       valueFormat: '"$" #,##0',
       highlightRow: 6,
       colWidths: [260, 240],
-      customFormats: { 2: '#,##0" bolsas"', 3: '#,##0" bolsas"', 7: '0.0"%"' }
+      customFormats: { 2: '#,##0" kg"', 3: '#,##0" kg"', 7: '0.0"%"' }
     });
   }
 
