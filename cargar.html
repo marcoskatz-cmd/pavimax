@@ -151,11 +151,13 @@
   /* Parciales list */
   .parciales-list { display: flex; flex-direction: column; gap: 10px; }
   .parcial-row {
-    display: grid; grid-template-columns: 1fr 110px 36px;
-    gap: 8px; align-items: center;
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+    background: var(--surface-2);
   }
+  .parcial-row-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .parcial-row-head input[type="date"] { flex: 1; }
   .parcial-row input[type="date"], .parcial-row input[type="number"] {
-    padding: 10px 12px; font-size: 15px; background: var(--surface-2);
+    padding: 10px 12px; font-size: 15px; background: var(--surface);
     color: var(--text);
     border: 1px solid var(--border); border-radius: 8px; width: 100%;
     font-family: inherit; height: 42px;
@@ -166,20 +168,23 @@
     text-align: left;
   }
   .parcial-row .del-btn {
-    background: var(--surface-2); border: 1px solid var(--border);
+    background: var(--surface); border: 1px solid var(--border);
     color: var(--warn); border-radius: 8px; padding: 0; cursor: pointer;
-    font-size: 18px; height: 42px; width: 36px;
+    font-size: 18px; height: 42px; width: 36px; flex: 0 0 36px;
     display: flex; align-items: center; justify-content: center;
   }
-  /* En pantallas angostas, fecha en una fila y cantidad+borrar en la otra */
+  .parcial-products {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+  }
+  .parcial-products label {
+    font-size: 10px; color: var(--muted); font-weight: 600;
+    display: flex; flex-direction: column; gap: 3px; text-align: center;
+  }
+  .parcial-products input[type="number"] {
+    padding: 8px 4px; font-size: 13px; height: 36px; text-align: center;
+  }
   @media (max-width: 480px) {
-    .parcial-row {
-      grid-template-columns: 1fr 36px;
-      row-gap: 6px;
-    }
-    .parcial-row input[type="date"] {
-      grid-column: 1 / -1;
-    }
+    .parcial-products { grid-template-columns: repeat(3, 1fr); row-gap: 8px; }
   }
   .parcial-add {
     background: var(--surface-2); border: 1px dashed var(--border);
@@ -329,7 +334,7 @@
     <div class="stock-card">
       <div class="lbl">Comprometidas</div>
       <div class="num" id="pendBolsas">—</div>
-      <div class="sub">bolsas</div>
+      <div class="sub">kg material</div>
     </div>
   </div>
 
@@ -360,26 +365,10 @@
       <input type="text" id="clienteNuevo" class="field-extra"
              placeholder="Nombre del cliente nuevo" autocomplete="off" style="display:none">
     </div>
-    <div class="field">
-      <label>Cantidad total de bolsas <span class="req">*</span></label>
-      <input type="number" id="cantidad" inputmode="numeric" min="1" placeholder="ej. 50">
-    </div>
-
-    <div class="toggle-row">
-      <div class="toggle-label">Entregar en varias fechas</div>
-      <div class="toggle" id="parcialesToggle" role="switch" aria-checked="false" tabindex="0"></div>
-    </div>
-
-    <div class="field" id="fechaSimpleField">
-      <label>Fecha de entrega <small style="color: var(--muted); font-weight: 500; text-transform: none;">— dejala vacía si todavía no está pautada</small></label>
-      <input type="date" id="fecha">
-    </div>
-
-    <div class="field" id="parcialesField" style="display:none">
-      <label>Parciales — la suma debe ser igual al total. La fecha de cada parcial es opcional.</label>
+    <div class="field" id="parcialesField">
+      <label>Tandas de entrega <small style="color: var(--muted); font-weight: 500; text-transform: none;">— fecha opcional por tanda, cargá las cantidades por producto</small></label>
       <div class="parciales-list" id="parcialesList"></div>
-      <button class="parcial-add" id="addParcialBtn" type="button">➕ Agregar parcial</button>
-      <div class="parcial-suma" id="parcialSuma" style="margin-top: 8px;">Suma: 0 / 0</div>
+      <button class="parcial-add" id="addParcialBtn" type="button">➕ Agregar tanda</button>
     </div>
 
     <div class="field">
@@ -409,10 +398,10 @@
     <div class="info-block" id="editSaldoInfo"></div>
 
     <div class="field">
-      <label>Parciales pendientes (la suma debe igualar el saldo)</label>
+      <label>Parciales pendientes (la suma por producto debe igualar el saldo)</label>
       <div class="parciales-list" id="editParcialesList"></div>
-      <button class="parcial-add" id="editAddParcialBtn" type="button">➕ Agregar parcial</button>
-      <div class="parcial-suma" id="editParcialSuma" style="margin-top: 8px;">Suma: 0 / 0</div>
+      <button class="parcial-add" id="editAddParcialBtn" type="button">➕ Agregar tanda</button>
+      <div class="parcial-suma" id="editParcialSuma" style="margin-top: 8px;"></div>
     </div>
 
     <div class="cap-feedback" id="editFeedback" style="display:none"></div>
@@ -461,6 +450,21 @@ const CONFIG = {
   POLL_MS:   30000
 };
 
+// Claves de producto EXACTAS que espera el backend, en el orden en que se muestran.
+const PRODUCTS = [
+  { key: 'bolsas_25kg',   label: '25kg' },
+  { key: 'bigbag_1000kg', label: 'Big bag' },
+  { key: 'emul_1l',       label: 'Emul 1L' },
+  { key: 'emul_5l',       label: '5L' },
+  { key: 'emul_20l',      label: '20L' }
+];
+
+function emptyTanda(fecha) {
+  const t = { fecha: fecha || '' };
+  PRODUCTS.forEach(pr => { t[pr.key] = ''; });
+  return t;
+}
+
 const state = {
   capacidad: null,
   clientes: [],
@@ -468,26 +472,19 @@ const state = {
   pendientes: [],
   stock: {},
   capacidadDiaria: null,
-  parcialesMode: false,
-  parcialesForm: [],  // [{fecha, cantidad}]
+  parcialesForm: [],  // [{fecha, bolsas_25kg, bigbag_1000kg, emul_1l, emul_5l, emul_20l}]
   editingId: null,
   editParciales: [],  // parciales editables del pedido seleccionado
-  editSaldo: 0,
+  editSaldos: {},      // saldo pendiente por producto
   capPasoConfirm: false
 };
 
 /* ===== INIT ===== */
 document.getElementById('sheetLink').href = CONFIG.SHEET_URL;
 document.getElementById('saveBtn').addEventListener('click', cargarPedido);
-document.getElementById('cantidad').addEventListener('input', onCantidadChange);
-document.getElementById('fecha').addEventListener('change', updateFeedback);
 document.getElementById('clienteSelect').addEventListener('change', onClienteSelectChange);
 document.getElementById('usuarioSelect').addEventListener('change', onUsuarioSelectChange);
 
-document.getElementById('parcialesToggle').addEventListener('click', toggleParcialesMode);
-document.getElementById('parcialesToggle').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleParcialesMode(); }
-});
 document.getElementById('addParcialBtn').addEventListener('click', () => addParcialRow());
 
 document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
@@ -505,11 +502,12 @@ document.getElementById('capModalBg').addEventListener('click', e => {
   if (e.target.id === 'capModalBg') closeCapModal();
 });
 
-document.getElementById('fecha').value = todayIso();
-
 // Restaurar último usuario elegido (mejora UX)
 const ultimoUsuario = localStorage.getItem('pavimax_usuario');
 if (ultimoUsuario) state._restoreUsuario = ultimoUsuario;
+
+state.parcialesForm = [emptyTanda(todayIso())];
+renderParcialesForm();
 
 fetchAll();
 setInterval(fetchAll, CONFIG.POLL_MS);
@@ -538,12 +536,31 @@ async function fetchAll() {
   }
 }
 
+/* ===== PRODUCTOS: helpers ===== */
+function sumProducts(obj) {
+  const t = {};
+  PRODUCTS.forEach(pr => { t[pr.key] = (t[pr.key] || 0) + (Number(obj && obj[pr.key]) || 0); });
+  return t;
+}
+function addProducts(a, b) {
+  const t = {};
+  PRODUCTS.forEach(pr => { t[pr.key] = (Number(a[pr.key]) || 0) + (Number(b[pr.key]) || 0); });
+  return t;
+}
+function materialKg(totals) {
+  return (Number(totals.bolsas_25kg) || 0) * 25 + (Number(totals.bigbag_1000kg) || 0) * 1000;
+}
+function pendienteTotals(p) {
+  // Suma per-producto de las parciales pendientes de un pedido.
+  return (p.parciales_pendientes || []).reduce((acc, pa) => addProducts(acc, sumProducts(pa)), sumProducts({}));
+}
+
 /* ===== RENDER ===== */
 function renderStock() {
   document.getElementById('stockNum').textContent = fmtNum(state.stock.stock_actual);
   document.getElementById('pendCount').textContent = state.pendientes.length;
-  const totalBolsas = state.pendientes.reduce((s, p) => s + (Number(p.saldo) || Number(p.cantidad_bolsas) || 0), 0);
-  document.getElementById('pendBolsas').textContent = fmtNum(totalBolsas);
+  const totalKg = state.pendientes.reduce((s, p) => s + materialKg(pendienteTotals(p)), 0);
+  document.getElementById('pendBolsas').textContent = fmtNum(totalKg);
 }
 
 function renderCapacidad() {
@@ -662,10 +679,11 @@ function renderPendientes() {
     const sinFecha = !fechaIso;
     const fechaCls = sinFecha ? 'sin' : (urgente ? 'urgente' : '');
     const nParciales = (p.parciales_pendientes || []).length;
-    const tieneEntregaParcial = p.cantidad_entregada > 0;
     const parcTag = nParciales > 1
       ? `<span class="parc-tag">${nParciales} entregas planeadas</span>`
-      : (tieneEntregaParcial ? `<span class="parc-tag">parcial — entregado ${fmtNum(p.cantidad_entregada)}</span>` : '');
+      : '';
+    const totals = pendienteTotals(p);
+    const chips = productChipsHtml(totals);
     el.innerHTML = `
       <div class="fecha-box ${fechaCls}">${fechaTxt}</div>
       <div class="info">
@@ -674,46 +692,49 @@ function renderPendientes() {
         ${parcTag}
       </div>
       <div class="cant">
-        <span class="qty"></span> <small>bolsas total</small>
-        ${tieneEntregaParcial || nParciales > 1
-          ? `<span class="saldo">saldo: ${fmtNum(p.saldo)}</span>`
-          : ''}
+        ${chips}
       </div>
       <div class="edit-icon">✏️</div>
     `;
     el.querySelector('.cli').textContent = p.cliente || '';
     el.querySelector('.obs').textContent = (p.usuario_carga ? `por ${p.usuario_carga}` : '')
       + (p.observacion_pedido ? (p.usuario_carga ? ' · ' : '') + p.observacion_pedido : '');
-    el.querySelector('.qty').textContent = fmtNum(p.cantidad_bolsas);
     el.addEventListener('click', () => openEditModal(p.id));
     list.appendChild(el);
   });
 }
 
-/* ===== TOGGLE PARCIALES ===== */
-function toggleParcialesMode() {
-  state.parcialesMode = !state.parcialesMode;
-  document.getElementById('parcialesToggle').classList.toggle('on', state.parcialesMode);
-  document.getElementById('parcialesToggle').setAttribute('aria-checked', state.parcialesMode);
-  document.getElementById('fechaSimpleField').style.display = state.parcialesMode ? 'none' : '';
-  document.getElementById('parcialesField').style.display = state.parcialesMode ? '' : 'none';
-  if (state.parcialesMode && state.parcialesForm.length === 0) {
-    state.parcialesForm = [{ fecha: todayIso(), cantidad: '' }];
-    renderParcialesForm();
-  }
-  updateFeedback();
+// Chips compactos con lo que queda pendiente por producto (solo los que son > 0)
+function productChipsHtml(totals) {
+  const kg = materialKg(totals);
+  const parts = [];
+  if (kg > 0) parts.push(`<div>${fmtNum(kg)} <small>kg material</small></div>`);
+  const emul = [];
+  if (Number(totals.emul_1l) > 0) emul.push(`${fmtNum(totals.emul_1l)}×1L`);
+  if (Number(totals.emul_5l) > 0) emul.push(`${fmtNum(totals.emul_5l)}×5L`);
+  if (Number(totals.emul_20l) > 0) emul.push(`${fmtNum(totals.emul_20l)}×20L`);
+  if (emul.length) parts.push(`<div><small>${emul.join(' · ')}</small></div>`);
+  return parts.join('') || '<div>—</div>';
 }
 
+/* ===== TANDAS: form de pedido nuevo ===== */
 function renderParcialesForm() {
   const list = document.getElementById('parcialesList');
   list.innerHTML = '';
   state.parcialesForm.forEach((p, idx) => {
     const row = document.createElement('div');
     row.className = 'parcial-row';
+    const prodInputs = PRODUCTS.map(pr => `
+      <label>${pr.label}
+        <input type="number" data-i="${idx}" data-k="${pr.key}" min="0" placeholder="0" value="${p[pr.key] === '' || p[pr.key] == null ? '' : p[pr.key]}">
+      </label>
+    `).join('');
     row.innerHTML = `
-      <input type="date" data-i="${idx}" data-k="fecha" value="${p.fecha || ''}">
-      <input type="number" data-i="${idx}" data-k="cantidad" min="1" placeholder="bolsas" value="${p.cantidad || ''}">
-      <button class="del-btn" data-i="${idx}" type="button" title="Quitar">×</button>
+      <div class="parcial-row-head">
+        <input type="date" data-i="${idx}" data-k="fecha" value="${p.fecha || ''}">
+        <button class="del-btn" data-i="${idx}" type="button" title="Quitar">×</button>
+      </div>
+      <div class="parcial-products">${prodInputs}</div>
     `;
     list.appendChild(row);
   });
@@ -721,8 +742,7 @@ function renderParcialesForm() {
     inp.addEventListener('input', (e) => {
       const i = Number(e.target.dataset.i);
       const k = e.target.dataset.k;
-      state.parcialesForm[i][k] = k === 'cantidad' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
-      updateParcialSuma();
+      state.parcialesForm[i][k] = k === 'fecha' ? e.target.value : (e.target.value === '' ? '' : Number(e.target.value));
       updateFeedback();
     });
   });
@@ -730,58 +750,49 @@ function renderParcialesForm() {
     btn.addEventListener('click', (e) => {
       const i = Number(e.target.dataset.i);
       state.parcialesForm.splice(i, 1);
-      if (state.parcialesForm.length === 0) state.parcialesForm = [{ fecha: todayIso(), cantidad: '' }];
+      if (state.parcialesForm.length === 0) state.parcialesForm = [emptyTanda(todayIso())];
       renderParcialesForm();
-      updateParcialSuma();
       updateFeedback();
     });
   });
-  updateParcialSuma();
 }
 
 function addParcialRow() {
   const last = state.parcialesForm[state.parcialesForm.length - 1];
   const baseFecha = last ? last.fecha : todayIso();
-  state.parcialesForm.push({ fecha: baseFecha, cantidad: '' });
+  state.parcialesForm.push(emptyTanda(baseFecha));
   renderParcialesForm();
-}
-
-function updateParcialSuma() {
-  const total = Number(document.getElementById('cantidad').value) || 0;
-  const suma = state.parcialesForm.reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
-  const el = document.getElementById('parcialSuma');
-  el.textContent = `Suma: ${fmtNum(suma)} / ${fmtNum(total)}`;
-  el.className = 'parcial-suma' + (suma === total && total > 0 ? ' ok' : (suma !== total ? ' bad' : ''));
-}
-
-function onCantidadChange() {
-  updateParcialSuma();
-  updateFeedback();
 }
 
 /* ===== FEEDBACK DE CAPACIDAD (form nuevo pedido) ===== */
 function updateFeedback() {
-  const cant = Number(document.getElementById('cantidad').value) || 0;
   const el = document.getElementById('feedback');
-  if (!cant) { el.style.display = 'none'; return; }
-  const cap = state.capacidad && state.capacidad.horizonte;
-  if (!cap) { el.style.display = 'none'; return; }
+  const totals = state.parcialesForm.reduce((acc, p) => addProducts(acc, sumProducts(p)), sumProducts({}));
+  const kg = materialKg(totals);
+  const hasAny = kg > 0 || Number(totals.emul_1l) > 0 || Number(totals.emul_5l) > 0 || Number(totals.emul_20l) > 0;
+  if (!hasAny) { el.style.display = 'none'; return; }
 
-  // Recolectar lista de (fecha, cantidad) a chequear
-  let parciales;
-  if (state.parcialesMode) {
-    parciales = state.parcialesForm
-      .filter(p => p.fecha && Number(p.cantidad) > 0)
-      .map(p => ({ fecha: p.fecha, cantidad: Number(p.cantidad) }));
-    if (parciales.length === 0) { el.style.display = 'none'; return; }
-  } else {
-    const fecha = document.getElementById('fecha').value;
-    if (!fecha) { el.style.display = 'none'; return; }
-    parciales = [{ fecha, cantidad: cant }];
+  const emulParts = [];
+  if (Number(totals.emul_1l) > 0) emulParts.push(`${fmtNum(totals.emul_1l)}×1L`);
+  if (Number(totals.emul_5l) > 0) emulParts.push(`${fmtNum(totals.emul_5l)}×5L`);
+  if (Number(totals.emul_20l) > 0) emulParts.push(`${fmtNum(totals.emul_20l)}×20L`);
+  const resumen = `Material: <strong>${fmtNum(kg)} kg</strong>` +
+    (emulParts.length ? ` · Emulsión: <strong>${emulParts.join(', ')}</strong>` : '');
+
+  // Chequeo de capacidad diaria: la capacidad se sigue expresando en bolsas/día,
+  // así que sólo chequeamos bolsas_25kg (big bag y emulsión no tienen esa unidad).
+  const cap = state.capacidad && state.capacidad.horizonte;
+  const parciales = state.parcialesForm
+    .filter(p => p.fecha && Number(p.bolsas_25kg) > 0)
+    .map(p => ({ fecha: p.fecha, cantidad: Number(p.bolsas_25kg) }));
+
+  el.style.display = '';
+  if (!cap || parciales.length === 0) {
+    el.className = 'cap-feedback ok';
+    el.innerHTML = resumen;
+    return;
   }
 
-  // Chequear capacidad por día. Si una parcial está fuera del horizonte, asumir ok.
-  // Importante: si hay varias parciales en el mismo día, hay que sumarlas para el chequeo.
   const sumPorFecha = {};
   parciales.forEach(p => { sumPorFecha[p.fecha] = (sumPorFecha[p.fecha] || 0) + p.cantidad; });
 
@@ -795,18 +806,15 @@ function updateFeedback() {
     }
   });
 
-  el.style.display = '';
   if (conflictos.length === 0) {
     el.className = 'cap-feedback ok';
-    el.innerHTML = state.parcialesMode
-      ? `✓ Todas las parciales entran en la capacidad disponible.`
-      : `✓ Para esa fecha tenés capacidad para las <strong>${fmtNum(cant)}</strong> bolsas.`;
+    el.innerHTML = `✓ ${resumen} — entra en la capacidad disponible.`;
   } else {
     el.className = 'cap-feedback warn';
     const lineas = conflictos.map(c =>
-      `<li><strong>${formatIso(c.fecha)}</strong>: faltan ${fmtNum(c.falta)} (disponible ${fmtNum(c.disp)}, querés ${fmtNum(c.cantDia)})</li>`
+      `<li><strong>${formatIso(c.fecha)}</strong>: faltan ${fmtNum(c.falta)} bolsas (disponible ${fmtNum(c.disp)}, querés ${fmtNum(c.cantDia)})</li>`
     ).join('');
-    el.innerHTML = `⚠ Hay parciales sin capacidad suficiente:<ul style="margin:6px 0 0 18px;padding:0">${lineas}</ul>`;
+    el.innerHTML = `${resumen}<br>⚠ Hay tandas sin capacidad suficiente:<ul style="margin:6px 0 0 18px;padding:0">${lineas}</ul>`;
   }
 }
 
@@ -814,35 +822,33 @@ function updateFeedback() {
 async function cargarPedido() {
   const usuario = getUsuarioName();
   const cliente = getClienteName();
-  const cantidad = Number(document.getElementById('cantidad').value);
   const obs = document.getElementById('observacion').value.trim();
 
   if (!usuario) { toast('Falta el usuario que carga', 'err'); return; }
   if (!cliente) { toast('Falta el cliente', 'err'); return; }
-  if (!cantidad || cantidad <= 0) { toast('Cantidad inválida', 'err'); return; }
 
-  let parciales = null;
-  let fechaSimple = '';
-  if (state.parcialesMode) {
-    parciales = state.parcialesForm
-      .filter(p => Number(p.cantidad) > 0)
-      .map(p => ({ fecha_entrega: p.fecha || '', cantidad: Number(p.cantidad) }));
-    const suma = parciales.reduce((s, p) => s + p.cantidad, 0);
-    if (parciales.length === 0) { toast('Agregá al menos una parcial', 'err'); return; }
-    if (suma !== cantidad) { toast(`Suma de parciales (${suma}) ≠ total (${cantidad})`, 'err'); return; }
-  } else {
-    fechaSimple = document.getElementById('fecha').value;
-    // fecha opcional: si está vacía se envía como '' y el backend la guarda sin fecha
-  }
+  // Cada tanda con al menos un producto > 0 se incluye en el payload.
+  const parciales = state.parcialesForm
+    .map(p => {
+      const t = { fecha_entrega: p.fecha || '' };
+      PRODUCTS.forEach(pr => { t[pr.key] = Number(p[pr.key]) || 0; });
+      return t;
+    })
+    .filter(t => PRODUCTS.some(pr => t[pr.key] > 0));
 
-  // Warning si alguna fecha no tiene capacidad — confirmar
+  if (parciales.length === 0) { toast('Agregá al menos un producto en alguna tanda', 'err'); return; }
+
+  const totalPedido = parciales.reduce((acc, t) => addProducts(acc, sumProducts(t)), sumProducts({}));
+  const hayAlgo = PRODUCTS.some(pr => totalPedido[pr.key] > 0);
+  if (!hayAlgo) { toast('El pedido necesita al menos un producto > 0', 'err'); return; }
+
+  // Warning si alguna fecha no tiene capacidad de bolsas — confirmar
   const cap = state.capacidad && state.capacidad.horizonte;
   if (cap) {
-    const checks = parciales
-      ? parciales.map(p => ({ fecha: p.fecha_entrega, cantidad: p.cantidad }))
-      : [{ fecha: fechaSimple, cantidad }];
     const sumPorFecha = {};
-    checks.forEach(c => { sumPorFecha[c.fecha] = (sumPorFecha[c.fecha] || 0) + c.cantidad; });
+    parciales
+      .filter(p => p.fecha_entrega && p.bolsas_25kg > 0)
+      .forEach(p => { sumPorFecha[p.fecha_entrega] = (sumPorFecha[p.fecha_entrega] || 0) + p.bolsas_25kg; });
     let conflicto = null;
     Object.keys(sumPorFecha).forEach(fecha => {
       const day = cap.find(d => d.fecha === fecha);
@@ -856,19 +862,16 @@ async function cargarPedido() {
   const btn = document.getElementById('saveBtn');
   btn.disabled = true; btn.textContent = 'Cargando…';
   try {
-    const body = {
-      action: 'cargarPedido',
-      cliente, cantidad,
-      usuario_carga: usuario,
-      observacion: obs
-    };
-    if (parciales) body.parciales = parciales;
-    else           body.fecha_entrega = fechaSimple; // puede ser ''
-
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        action: 'cargarPedido',
+        cliente,
+        usuario_carga: usuario,
+        observacion: obs,
+        parciales
+      })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
@@ -879,11 +882,10 @@ async function cargarPedido() {
     document.getElementById('clienteSelect').value = '';
     document.getElementById('clienteNuevo').value = '';
     document.getElementById('clienteNuevo').style.display = 'none';
-    document.getElementById('cantidad').value = '';
     document.getElementById('observacion').value = '';
     document.getElementById('feedback').style.display = 'none';
-    if (state.parcialesMode) { toggleParcialesMode(); }
-    state.parcialesForm = [];
+    state.parcialesForm = [emptyTanda(todayIso())];
+    renderParcialesForm();
     fetchAll();
   } catch (e) {
     toast('Error: ' + e.message, 'err');
@@ -897,20 +899,21 @@ function openEditModal(id) {
   const p = state.pendientes.find(x => String(x.id) === String(id));
   if (!p) return;
   state.editingId = p.id;
-  state.editSaldo = Number(p.saldo) || 0;
-  state.editParciales = (p.parciales_pendientes || []).map(pa => ({
-    fecha: pa.fecha_iso || '',
-    cantidad: pa.cantidad
-  }));
+  state.editSaldos = pendienteTotals(p);
+  state.editParciales = (p.parciales_pendientes || []).map(pa => {
+    const row = { fecha: pa.fecha_iso || '' };
+    PRODUCTS.forEach(pr => { row[pr.key] = Number(pa[pr.key]) || 0; });
+    return row;
+  });
   if (state.editParciales.length === 0) {
-    state.editParciales = [{ fecha: '', cantidad: state.editSaldo }];
+    const row = { fecha: '' };
+    PRODUCTS.forEach(pr => { row[pr.key] = state.editSaldos[pr.key] || 0; });
+    state.editParciales = [row];
   }
   document.getElementById('editSub').textContent =
-    `${p.cliente} — total ${fmtNum(p.cantidad_bolsas)}` +
-    (p.observacion_pedido ? ` (${p.observacion_pedido})` : '');
+    `${p.cliente}` + (p.observacion_pedido ? ` (${p.observacion_pedido})` : '');
   document.getElementById('editSaldoInfo').innerHTML =
-    `Saldo pendiente a entregar: <strong>${fmtNum(state.editSaldo)} bolsas</strong>` +
-    (p.cantidad_entregada > 0 ? ` · Ya entregado: ${fmtNum(p.cantidad_entregada)}` : '');
+    'Saldo pendiente a entregar: ' + productChipsHtml(state.editSaldos);
   renderEditParciales();
   document.getElementById('editFeedback').style.display = 'none';
   document.getElementById('editModalBg').classList.add('show');
@@ -928,10 +931,17 @@ function renderEditParciales() {
   state.editParciales.forEach((p, idx) => {
     const row = document.createElement('div');
     row.className = 'parcial-row';
+    const prodInputs = PRODUCTS.map(pr => `
+      <label>${pr.label}
+        <input type="number" data-i="${idx}" data-k="${pr.key}" min="0" placeholder="0" value="${p[pr.key] === '' || p[pr.key] == null ? '' : p[pr.key]}">
+      </label>
+    `).join('');
     row.innerHTML = `
-      <input type="date" data-i="${idx}" data-k="fecha" value="${p.fecha || ''}">
-      <input type="number" data-i="${idx}" data-k="cantidad" min="1" placeholder="bolsas" value="${p.cantidad || ''}">
-      <button class="del-btn" data-i="${idx}" type="button" title="Quitar">×</button>
+      <div class="parcial-row-head">
+        <input type="date" data-i="${idx}" data-k="fecha" value="${p.fecha || ''}">
+        <button class="del-btn" data-i="${idx}" type="button" title="Quitar">×</button>
+      </div>
+      <div class="parcial-products">${prodInputs}</div>
     `;
     list.appendChild(row);
   });
@@ -939,7 +949,7 @@ function renderEditParciales() {
     inp.addEventListener('input', (e) => {
       const i = Number(e.target.dataset.i);
       const k = e.target.dataset.k;
-      state.editParciales[i][k] = k === 'cantidad' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
+      state.editParciales[i][k] = k === 'fecha' ? e.target.value : (e.target.value === '' ? '' : Number(e.target.value));
       updateEditParcialSuma();
       updateEditFeedback();
     });
@@ -948,7 +958,11 @@ function renderEditParciales() {
     btn.addEventListener('click', (e) => {
       const i = Number(e.target.dataset.i);
       state.editParciales.splice(i, 1);
-      if (state.editParciales.length === 0) state.editParciales = [{ fecha: '', cantidad: state.editSaldo }];
+      if (state.editParciales.length === 0) {
+        const row = { fecha: '' };
+        PRODUCTS.forEach(pr => { row[pr.key] = state.editSaldos[pr.key] || 0; });
+        state.editParciales = [row];
+      }
       renderEditParciales();
       updateEditParcialSuma();
       updateEditFeedback();
@@ -961,15 +975,21 @@ function renderEditParciales() {
 function addEditParcialRow() {
   const last = state.editParciales[state.editParciales.length - 1];
   const baseFecha = last ? last.fecha : todayIso();
-  state.editParciales.push({ fecha: baseFecha, cantidad: '' });
+  state.editParciales.push(emptyTanda(baseFecha));
   renderEditParciales();
 }
 
 function updateEditParcialSuma() {
-  const suma = state.editParciales.reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+  const suma = state.editParciales.reduce((acc, p) => addProducts(acc, sumProducts(p)), sumProducts({}));
   const el = document.getElementById('editParcialSuma');
-  el.textContent = `Suma: ${fmtNum(suma)} / ${fmtNum(state.editSaldo)}`;
-  el.className = 'parcial-suma' + (suma === state.editSaldo ? ' ok' : ' bad');
+  const linea = PRODUCTS.map(pr => {
+    const s = suma[pr.key] || 0, t = state.editSaldos[pr.key] || 0;
+    if (s === 0 && t === 0) return '';
+    return `${pr.label}: ${fmtNum(s)}/${fmtNum(t)}`;
+  }).filter(Boolean).join(' · ');
+  const ok = PRODUCTS.every(pr => (suma[pr.key] || 0) === (state.editSaldos[pr.key] || 0));
+  el.textContent = 'Suma: ' + (linea || '0');
+  el.className = 'parcial-suma' + (ok ? ' ok' : ' bad');
 }
 
 function updateEditFeedback() {
@@ -979,16 +999,16 @@ function updateEditFeedback() {
   const pedido = state.pendientes.find(x => String(x.id) === String(state.editingId));
   if (!pedido) { el.style.display = 'none'; return; }
 
-  // Para chequear capacidad correctamente: las parciales actuales del pedido
+  // Para chequear capacidad correctamente (solo bolsas_25kg): las parciales actuales del pedido
   // ya están en el "committed". Hay que sumarlas de vuelta y restar las nuevas.
   const fechasViejas = {};
   (pedido.parciales_pendientes || []).forEach(pa => {
-    fechasViejas[pa.fecha_iso] = (fechasViejas[pa.fecha_iso] || 0) + Number(pa.cantidad || 0);
+    fechasViejas[pa.fecha_iso] = (fechasViejas[pa.fecha_iso] || 0) + (Number(pa.bolsas_25kg) || 0);
   });
   const fechasNuevas = {};
   state.editParciales
-    .filter(p => p.fecha && Number(p.cantidad) > 0)
-    .forEach(p => { fechasNuevas[p.fecha] = (fechasNuevas[p.fecha] || 0) + Number(p.cantidad); });
+    .filter(p => p.fecha && Number(p.bolsas_25kg) > 0)
+    .forEach(p => { fechasNuevas[p.fecha] = (fechasNuevas[p.fecha] || 0) + Number(p.bolsas_25kg); });
 
   const allFechas = new Set([...Object.keys(fechasViejas), ...Object.keys(fechasNuevas)]);
   const conflictos = [];
@@ -1011,12 +1031,18 @@ function updateEditFeedback() {
 async function saveEditParciales() {
   if (!state.editingId) return;
   const parciales = state.editParciales
-    .filter(p => Number(p.cantidad) > 0)
-    .map(p => ({ fecha_entrega: p.fecha || '', cantidad: Number(p.cantidad) }));
-  if (parciales.length === 0) { toast('Agregá al menos una parcial', 'err'); return; }
-  const suma = parciales.reduce((s, p) => s + p.cantidad, 0);
-  if (suma !== state.editSaldo) {
-    toast(`Suma de parciales (${suma}) ≠ saldo (${state.editSaldo})`, 'err');
+    .map(p => {
+      const t = { fecha_entrega: p.fecha || '' };
+      PRODUCTS.forEach(pr => { t[pr.key] = Number(p[pr.key]) || 0; });
+      return t;
+    })
+    .filter(t => PRODUCTS.some(pr => t[pr.key] > 0));
+  if (parciales.length === 0) { toast('Agregá al menos un producto en alguna tanda', 'err'); return; }
+
+  const suma = parciales.reduce((acc, t) => addProducts(acc, sumProducts(t)), sumProducts({}));
+  const ok = PRODUCTS.every(pr => (suma[pr.key] || 0) === (state.editSaldos[pr.key] || 0));
+  if (!ok) {
+    toast('La suma por producto no coincide con el saldo pendiente', 'err');
     return;
   }
 
