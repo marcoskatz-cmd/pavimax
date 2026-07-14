@@ -195,6 +195,14 @@
     font-size: 14px; font-weight: 700;
     border: 1px solid var(--tag-border);
   }
+  .chip-producto {
+    display: inline-block;
+    background: var(--primary-soft); color: var(--primary-dark);
+    padding: 5px 10px; border-radius: 8px;
+    font-size: 13px; font-weight: 700;
+    border: 1px solid #bbf7d0;
+    margin-right: 6px; margin-bottom: 4px;
+  }
 
   /* ===== Botones ===== */
   .btn {
@@ -369,8 +377,8 @@
     <div class="help-card">
       <div class="help-title">💡 Cómo usar</div>
       <ol>
-        <li>Tocá <strong>Pedidos</strong> para ver lo pendiente. Cuando vayas a entregar, tocá <strong>ENTREGAR</strong>, elegí tu nombre, confirmá la cantidad (podés entregar menos que el saldo), sacá foto del remito y tocá <strong>Confirmar entrega</strong>.</li>
-        <li>Cuando haya producción, andá a <strong>Producción</strong> y cargá cuántas bolsas se hicieron.</li>
+        <li>Tocá <strong>Pedidos</strong> para ver lo pendiente. Cada pedido puede tener varias tandas (entregas planeadas); tocá <strong>ENTREGAR</strong>, elegí la tanda si hay más de una, elegí tu nombre, sacá foto del remito y tocá <strong>Confirmar entrega</strong>. Se entrega la tanda completa.</li>
+        <li>Cuando haya producción, andá a <strong>Producción</strong> y cargá cuántas bolsas de 25kg y/o big bag de 1000kg se hicieron.</li>
         <li>Los remitos de cada entrega quedan en cada pedido entregado — tocá <strong>Ver remito ↗</strong>.</li>
       </ol>
     </div>
@@ -398,9 +406,20 @@
     <div class="section-title">Producción del día</div>
     <div class="form-card">
       <div class="field">
-        <label>Bolsas producidas</label>
-        <input type="number" id="prodCantidad" inputmode="numeric" min="1" placeholder="ej. 120">
+        <label>Operario</label>
+        <select id="prodOperario">
+          <option value="">— Elegí tu nombre —</option>
+        </select>
       </div>
+      <div class="field">
+        <label>Bolsas de 25kg producidas</label>
+        <input type="number" id="prodBolsas" inputmode="numeric" min="0" placeholder="ej. 120">
+      </div>
+      <div class="field">
+        <label>Big bag de 1000kg producidos</label>
+        <input type="number" id="prodBigbag" inputmode="numeric" min="0" placeholder="ej. 2">
+      </div>
+      <div class="saldo-block" id="prodKgPreview">Equivalente: <strong>0 kg</strong></div>
       <button class="btn btn-ok" id="prodBtn">Guardar producción</button>
     </div>
 
@@ -416,7 +435,7 @@
     <h2>Entregar pedido</h2>
     <div class="sub" id="modalSub"></div>
 
-    <div class="saldo-block" id="modalSaldo"></div>
+    <div class="saldo-block" id="modalProductos"></div>
 
     <div class="field">
       <label class="label-inline">Entregado por <span class="req">*</span></label>
@@ -427,11 +446,6 @@
              placeholder="Nombre del nuevo usuario"
              autocomplete="off"
              style="display:none; margin-top: 8px; width: 100%; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 14px; border-radius: 10px; font-size: 17px; font-family: inherit;">
-    </div>
-
-    <div class="field">
-      <label class="label-inline">Cantidad a entregar <span class="req">*</span></label>
-      <input type="number" id="cantEntrega" inputmode="numeric" min="1">
     </div>
 
     <div class="field">
@@ -473,7 +487,7 @@ const state = {
   pendientes: [], entregados: [], stock: {}, produccion: [], usuarios: [],
   knownIds: new Set(), firstLoad: true,
   soundOn: false,
-  modalId: null, modalSaldo: 0, fotoB64: null, fotoMime: 'image/jpeg',
+  modalId: null, modalParcial: null, fotoB64: null, fotoMime: 'image/jpeg',
   swReg: null
 };
 
@@ -494,6 +508,8 @@ document.getElementById('cancelarBtn').addEventListener('click', closeModal);
 document.getElementById('confirmarBtn').addEventListener('click', confirmarEntrega);
 document.getElementById('photoInput').addEventListener('change', handlePhoto);
 document.getElementById('prodBtn').addEventListener('click', guardarProduccion);
+document.getElementById('prodBolsas').addEventListener('input', updateProdKgPreview);
+document.getElementById('prodBigbag').addEventListener('input', updateProdKgPreview);
 document.getElementById('usuarioEntrega').addEventListener('change', onUsuarioEntregaChange);
 
 function onUsuarioEntregaChange(e) {
@@ -566,7 +582,7 @@ function notifyNewOrder(p) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const title = 'Nuevo pedido — PAVIMAX';
   const opts = {
-    body: `${p.cliente} — ${p.cantidad_bolsas} bolsas${p.observacion_pedido ? ' · ' + p.observacion_pedido : ''}`,
+    body: `${p.cliente} — ${productosLabel(p)}${p.observacion_pedido ? ' · ' + p.observacion_pedido : ''}`,
     icon: 'icon-192.png',
     badge: 'icon-192.png',
     tag: 'pedido-' + p.id
@@ -640,10 +656,10 @@ function render() {
     state.entregados.forEach(x => e.appendChild(cardEntregado(x)));
   }
 
-  document.getElementById('stockIni').textContent  = fmtNum(state.stock.stock_inicial);
-  document.getElementById('stockProd').textContent = fmtNum(state.stock.total_producido);
-  document.getElementById('stockVen').textContent  = fmtNum(state.stock.total_vendido);
-  document.getElementById('stockAct').textContent  = fmtNum(state.stock.stock_actual);
+  document.getElementById('stockIni').textContent  = fmtNum(state.stock.stock_inicial) + ' kg';
+  document.getElementById('stockProd').textContent = fmtNum(state.stock.total_producido) + ' kg';
+  document.getElementById('stockVen').textContent  = fmtNum(state.stock.total_vendido) + ' kg';
+  document.getElementById('stockAct').textContent  = fmtNum(state.stock.stock_actual) + ' kg';
 
   const pl = document.getElementById('produccionList');
   pl.innerHTML = '';
@@ -653,71 +669,102 @@ function render() {
     state.produccion.forEach(p => {
       const el = document.createElement('div');
       el.className = 'prod-list-row';
-      el.innerHTML = '<span class="fecha"></span><span class="cant"><span class="qty"></span><small> bolsas</small></span>';
+      el.innerHTML = '<span class="fecha"></span><span class="cant"><span class="qty"></span></span>';
       el.querySelector('.fecha').textContent = p.fecha || '';
-      el.querySelector('.qty').textContent = fmtNum(p.cantidad);
+      const bolsas = Number(p.bolsas_25kg) || 0;
+      const bigbag = Number(p.bigbag_1000kg) || 0;
+      const kg = p.kg_total != null ? Number(p.kg_total) : (bolsas * 25 + bigbag * 1000);
+      const partes = [];
+      if (bolsas) partes.push(`${fmtNum(bolsas)} bolsas`);
+      if (bigbag) partes.push(`${fmtNum(bigbag)} big bag`);
+      el.querySelector('.qty').innerHTML = (partes.join(' + ') || '—') + ` <small>(${fmtNum(kg)} kg)</small>`;
       pl.appendChild(el);
     });
   }
+
+  fillOperarioSelect();
+}
+
+function fillOperarioSelect() {
+  const sel = document.getElementById('prodOperario');
+  if (!sel) return;
+  const actual = sel.value;
+  sel.innerHTML = '<option value="">— Elegí tu nombre —</option>';
+  state.usuarios.forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u; opt.textContent = u;
+    sel.appendChild(opt);
+  });
+  const ultimo = localStorage.getItem('pavimax_usuario_entrega');
+  if (actual && state.usuarios.includes(actual)) sel.value = actual;
+  else if (ultimo && state.usuarios.includes(ultimo)) sel.value = ultimo;
+}
+
+/* ===== PRODUCTOS: formato ===== */
+function productosLabel(obj) {
+  const items = [];
+  if (Number(obj.bolsas_25kg))   items.push(`${fmtNum(obj.bolsas_25kg)}×25kg`);
+  if (Number(obj.bigbag_1000kg)) items.push(`${fmtNum(obj.bigbag_1000kg)} big bag`);
+  if (Number(obj.emul_1l))       items.push(`${fmtNum(obj.emul_1l)}×1L emul`);
+  if (Number(obj.emul_5l))       items.push(`${fmtNum(obj.emul_5l)}×5L emul`);
+  if (Number(obj.emul_20l))      items.push(`${fmtNum(obj.emul_20l)}×20L emul`);
+  return items.join(' · ') || 'sin productos';
+}
+function productosChips(obj) {
+  const items = [];
+  if (Number(obj.bolsas_25kg))   items.push(`${fmtNum(obj.bolsas_25kg)} × 25kg`);
+  if (Number(obj.bigbag_1000kg)) items.push(`${fmtNum(obj.bigbag_1000kg)} big bag`);
+  if (Number(obj.emul_1l))       items.push(`${fmtNum(obj.emul_1l)} × 1L emul`);
+  if (Number(obj.emul_5l))       items.push(`${fmtNum(obj.emul_5l)} × 5L emul`);
+  if (Number(obj.emul_20l))      items.push(`${fmtNum(obj.emul_20l)} × 20L emul`);
+  return items.map(t => `<span class="chip-producto">${t}</span>`).join('');
 }
 
 function cardPendiente(p) {
   const el = document.createElement('div');
   el.className = 'card';
-  const saldo = Number(p.saldo) || Number(p.cantidad_bolsas) || 0;
-  const entregado = Number(p.cantidad_entregada) || 0;
-  const total = Number(p.cantidad_bolsas) || 0;
-  const tieneParcial = entregado > 0;
-  const nParciales = (p.parciales_pendientes || []).length;
+  const pend = p.parciales_pendientes || [];
+  const proxima = pend[0] || null;
+
+  const d = new Date();
+  const hoy = d.getFullYear() + '-' +
+              String(d.getMonth() + 1).padStart(2, '0') + '-' +
+              String(d.getDate()).padStart(2, '0');
 
   el.innerHTML = `
     <div class="row1">
       <div class="cliente"></div>
-      <div class="cantidad">
-        <span class="qty"></span><small> bolsas saldo</small>
-      </div>
     </div>
+    <div class="chips-productos"></div>
     <div class="entrega-info" style="display:none"></div>
     <div class="parcial-info" style="display:none"></div>
-    <div class="saldo-info" style="display:none"></div>
     <div class="tag" style="display:none"></div>
     <div class="fecha"></div>
+    <div class="field tanda-select-field" style="display:none">
+      <label class="label-inline">Elegir tanda a entregar</label>
+      <select class="tandaSelect"></select>
+    </div>
     <button class="btn btn-ok">ENTREGAR</button>
   `;
   el.querySelector('.cliente').textContent = p.cliente;
-  el.querySelector('.qty').textContent = saldo;
+  el.querySelector('.chips-productos').innerHTML = productosChips(p);
 
   const ent = el.querySelector('.entrega-info');
   if (p.proxima_fecha) {
     ent.style.display = '';
-    const cantProx = Number(p.proxima_cantidad) || 0;
-    ent.textContent = '📅 Próxima entrega: ' + p.proxima_fecha +
-                      (cantProx ? ` (${cantProx} bolsas)` : '');
-    if (p.proxima_fecha_iso) {
-      const d = new Date();
-      const hoy = d.getFullYear() + '-' +
-                  String(d.getMonth() + 1).padStart(2, '0') + '-' +
-                  String(d.getDate()).padStart(2, '0');
-      if (p.proxima_fecha_iso <= hoy) ent.classList.add('urgente');
-    }
+    ent.textContent = '📅 Próxima entrega: ' + p.proxima_fecha;
+    if (p.proxima_fecha_iso && p.proxima_fecha_iso <= hoy) ent.classList.add('urgente');
   }
 
   const parc = el.querySelector('.parcial-info');
-  const pend = p.parciales_pendientes || [];
-  if (pend.length > 1) {
+  if (pend.length > 0) {
     parc.style.display = '';
-    const hoy = new Date().toISOString().slice(0, 10);
     const filas = pend.map(pp => {
       const venc = pp.fecha_iso && pp.fecha_iso <= hoy ? ' ⏰' : '';
-      return `<div class="tanda-row">📅 ${pp.fecha || 'sin fecha'} — ${fmtNum(pp.cantidad)} bolsas${venc}</div>`;
+      return `<div class="tanda-row">📅 ${pp.fecha || 'sin fecha'} — ${productosLabel(pp)}${venc}</div>`;
     }).join('');
-    parc.innerHTML = `<div class="tandas-title">${pend.length} entregas planeadas:</div>${filas}`;
-  }
-
-  const saldoInfo = el.querySelector('.saldo-info');
-  if (tieneParcial) {
-    saldoInfo.style.display = '';
-    saldoInfo.innerHTML = `Total: ${fmtNum(total)} · Ya entregado: <strong>${fmtNum(entregado)}</strong>`;
+    const plural = pend.length > 1 ? 's' : '';
+    parc.innerHTML = `<div class="tandas-title">${pend.length} tanda${plural} pendiente${plural}:</div>${filas}`;
   }
 
   const tag = el.querySelector('.tag');
@@ -726,38 +773,74 @@ function cardPendiente(p) {
     tag.textContent = '⚠ ' + p.observacion_pedido;
   }
   el.querySelector('.fecha').textContent = p.fecha_carga ? 'Cargado: ' + p.fecha_carga : '';
-  el.querySelector('button').addEventListener('click', () => openModal(p));
+
+  const selField = el.querySelector('.tanda-select-field');
+  const sel = el.querySelector('.tandaSelect');
+  if (pend.length > 1) {
+    selField.style.display = '';
+    pend.forEach(pp => {
+      const opt = document.createElement('option');
+      opt.value = pp.id_parcial;
+      opt.textContent = (pp.fecha || 'sin fecha') + ' — ' + productosLabel(pp);
+      sel.appendChild(opt);
+    });
+  }
+
+  el.querySelector('button').addEventListener('click', () => {
+    const chosenId = sel.value || (proxima && proxima.id_parcial);
+    const chosen = pend.find(pp => String(pp.id_parcial) === String(chosenId)) || proxima;
+    if (!chosen) { toast('No hay tandas pendientes para este pedido', 'err'); return; }
+    openModal(p, chosen);
+  });
   return el;
 }
 
 function cardEntregado(x) {
   const el = document.createElement('div');
   el.className = 'entregado';
+  const entregas = x.entregas || [];
+  const totales = { bolsas_25kg: 0, bigbag_1000kg: 0, emul_1l: 0, emul_5l: 0, emul_20l: 0 };
+  entregas.forEach(en => {
+    Object.keys(totales).forEach(k => { totales[k] += Number(en[k]) || 0; });
+  });
+
   el.innerHTML = `
     <div class="head">
       <div class="cliente"></div>
-      <div><strong class="qty"></strong> bolsas</div>
     </div>
+    <div class="chips-productos"></div>
     <div class="meta"></div>
+    <div class="entregas-detalle"></div>
     <div class="obs"></div>
-    <a class="rem" target="_blank" style="display:none">Ver remito ↗</a>
   `;
   el.querySelector('.cliente').textContent = x.cliente;
-  el.querySelector('.qty').textContent = x.cantidad_bolsas;
-  const nEnt = (x.entregas || []).length;
+  el.querySelector('.chips-productos').innerHTML = productosChips(totales);
   const usuario = x.usuario_entrega ? ' · por ' + x.usuario_entrega : '';
   el.querySelector('.meta').textContent =
     (x.fecha_entrega ? 'Última entrega: ' + x.fecha_entrega : '') +
-    (nEnt > 1 ? ` · ${nEnt} entregas` : '') +
+    (entregas.length > 1 ? ` · ${entregas.length} tandas entregadas` : '') +
     usuario +
     (x.observacion_pedido ? ' · ' + x.observacion_pedido : '');
+
+  const det = el.querySelector('.entregas-detalle');
+  entregas.forEach(en => {
+    const row = document.createElement('div');
+    row.className = 'tanda-row';
+    const usr = en.usuario_entrega ? ' · ' + en.usuario_entrega : '';
+    row.textContent = `📅 ${en.fecha || ''} — ${productosLabel(en)}${usr}`;
+    if (en.link_remito) {
+      const a = document.createElement('a');
+      a.href = en.link_remito;
+      a.target = '_blank';
+      a.textContent = ' Ver remito ↗';
+      a.style.marginLeft = '6px';
+      row.appendChild(a);
+    }
+    det.appendChild(row);
+  });
+
   const obs = el.querySelector('.obs');
   if (x.observacion_entrega) obs.textContent = '"' + x.observacion_entrega + '"';
-  if (x.link_remito) {
-    const a = el.querySelector('.rem');
-    a.href = x.link_remito;
-    a.style.display = '';
-  }
   return el;
 }
 
@@ -767,20 +850,16 @@ function fmtNum(n) {
 }
 
 /* ===== MODAL ENTREGA ===== */
-function openModal(p) {
+function openModal(p, parcial) {
   state.modalId = p.id;
+  state.modalParcial = parcial;
   state.fotoB64 = null;
-  const saldo = Number(p.saldo) || Number(p.cantidad_bolsas) || 0;
-  state.modalSaldo = saldo;
-  const proxCant = Number(p.proxima_cantidad) || saldo;
-  const sugerido = Math.min(proxCant, saldo);
 
   document.getElementById('modalSub').textContent =
-    p.cliente + ' — total ' + p.cantidad_bolsas + ' bolsas' +
+    p.cliente + ' — tanda del ' + (parcial.fecha || 'sin fecha') +
     (p.observacion_pedido ? ' (' + p.observacion_pedido + ')' : '');
-  document.getElementById('modalSaldo').innerHTML =
-    `Saldo pendiente: <strong>${fmtNum(saldo)} bolsas</strong>` +
-    (p.proxima_fecha ? ` · Próxima planeada: ${fmtNum(proxCant)} el ${p.proxima_fecha}` : '');
+  document.getElementById('modalProductos').innerHTML =
+    `Productos a entregar: <strong>${productosLabel(parcial)}</strong>`;
 
   // Llenar selector de usuario
   const sel = document.getElementById('usuarioEntrega');
@@ -800,11 +879,6 @@ function openModal(p) {
   inpNuevo.value = '';
   inpNuevo.style.display = 'none';
 
-  // Cantidad pre-rellenada con la próxima parcial (o el saldo)
-  const cantInp = document.getElementById('cantEntrega');
-  cantInp.value = sugerido;
-  cantInp.max = saldo;
-
   document.getElementById('obsEntrega').value = '';
   document.getElementById('photoPreview').style.display = 'none';
   document.getElementById('photoPreview').src = '';
@@ -816,6 +890,7 @@ function openModal(p) {
 function closeModal() {
   document.getElementById('modalBg').classList.remove('show');
   state.modalId = null;
+  state.modalParcial = null;
   state.fotoB64 = null;
 }
 
@@ -862,7 +937,7 @@ function compressImage(file, maxSide, quality) {
 }
 
 async function confirmarEntrega() {
-  if (!state.modalId) return;
+  if (!state.modalId || !state.modalParcial) return;
   const selValue = document.getElementById('usuarioEntrega').value;
   let usuario = selValue;
   if (selValue === '__new__') {
@@ -870,17 +945,8 @@ async function confirmarEntrega() {
     if (!usuario) { toast('Escribí el nombre del nuevo usuario', 'err'); return; }
   }
   if (!usuario) { toast('Elegí tu nombre', 'err'); return; }
-  const cantidad = Number(document.getElementById('cantEntrega').value);
-  if (!cantidad || cantidad <= 0) { toast('Cantidad inválida', 'err'); return; }
-  if (cantidad > state.modalSaldo) {
-    toast(`No podés entregar más que el saldo (${state.modalSaldo})`, 'err'); return;
-  }
   if (!state.fotoB64) {
     if (!confirm('No cargaste foto del remito. ¿Confirmar igual?')) return;
-  }
-  const esCompleta = cantidad >= state.modalSaldo;
-  if (!esCompleta) {
-    if (!confirm(`Vas a entregar ${cantidad} de ${state.modalSaldo} bolsas. Queda saldo de ${state.modalSaldo - cantidad}. ¿Confirmar?`)) return;
   }
 
   const btn = document.getElementById('confirmarBtn');
@@ -893,8 +959,7 @@ async function confirmarEntrega() {
     }
     const r = await postAction({
       action: 'entregar',
-      id: state.modalId,
-      cantidad,
+      id_parcial: state.modalParcial.id_parcial,
       usuario_entrega: usuario,
       observacion: document.getElementById('obsEntrega').value.trim(),
       foto_base64: state.fotoB64 || '',
@@ -902,7 +967,8 @@ async function confirmarEntrega() {
     });
     if (!r.ok) throw new Error(r.error || 'error');
     localStorage.setItem('pavimax_usuario_entrega', usuario);
-    toast(esCompleta ? 'Pedido entregado ✓' : `Parcial registrada (saldo ${state.modalSaldo - cantidad}) ✓`, 'ok');
+    const estado = r.estado || (r.data && r.data.estado);
+    toast(estado === 'entregado' ? 'Pedido completo ✓' : 'Tanda entregada ✓', 'ok');
     closeModal();
     fetchAll();
   } catch (e) {
@@ -913,17 +979,36 @@ async function confirmarEntrega() {
 }
 
 /* ===== PRODUCCIÓN ===== */
+function updateProdKgPreview() {
+  const bolsas = Number(document.getElementById('prodBolsas').value) || 0;
+  const bigbag = Number(document.getElementById('prodBigbag').value) || 0;
+  const kg = bolsas * 25 + bigbag * 1000;
+  document.getElementById('prodKgPreview').innerHTML = `Equivalente: <strong>${fmtNum(kg)} kg</strong>`;
+}
+
 async function guardarProduccion() {
-  const inp = document.getElementById('prodCantidad');
-  const cant = Number(inp.value);
-  if (!cant || cant <= 0) { toast('Cantidad inválida', 'err'); return; }
+  const bolsasInp = document.getElementById('prodBolsas');
+  const bigbagInp = document.getElementById('prodBigbag');
+  const bolsas = Number(bolsasInp.value) || 0;
+  const bigbag = Number(bigbagInp.value) || 0;
+  if (bolsas <= 0 && bigbag <= 0) { toast('Cargá al menos bolsas o big bag', 'err'); return; }
+  const operario = document.getElementById('prodOperario').value;
+  if (!operario) { toast('Elegí el operario', 'err'); return; }
   const btn = document.getElementById('prodBtn');
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
-    const r = await postAction({ action: 'producir', cantidad: cant });
+    const r = await postAction({
+      action: 'producir',
+      bolsas_25kg: bolsas,
+      bigbag_1000kg: bigbag,
+      operario
+    });
     if (!r.ok) throw new Error(r.error || 'error');
+    localStorage.setItem('pavimax_usuario_entrega', operario);
     toast('Producción registrada ✓', 'ok');
-    inp.value = '';
+    bolsasInp.value = '';
+    bigbagInp.value = '';
+    updateProdKgPreview();
     fetchAll();
   } catch (e) {
     toast('Error: ' + e.message, 'err');
