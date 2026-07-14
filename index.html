@@ -121,6 +121,8 @@
     font-size: 12px; font-weight: 600;
     display: inline-block;
   }
+  .tandas-title { font-weight: 700; margin-bottom: 4px; }
+  .tanda-row { font-size: 13px; padding: 2px 0; }
   .card .saldo-info {
     font-size: 13px; color: var(--muted);
   }
@@ -701,9 +703,15 @@ function cardPendiente(p) {
   }
 
   const parc = el.querySelector('.parcial-info');
-  if (nParciales > 1) {
+  const pend = p.parciales_pendientes || [];
+  if (pend.length > 1) {
     parc.style.display = '';
-    parc.textContent = `📋 ${nParciales} entregas planeadas`;
+    const hoy = new Date().toISOString().slice(0, 10);
+    const filas = pend.map(pp => {
+      const venc = pp.fecha_iso && pp.fecha_iso <= hoy ? ' ⏰' : '';
+      return `<div class="tanda-row">📅 ${pp.fecha || 'sin fecha'} — ${fmtNum(pp.cantidad)} bolsas${venc}</div>`;
+    }).join('');
+    parc.innerHTML = `<div class="tandas-title">${pend.length} entregas planeadas:</div>${filas}`;
   }
 
   const saldoInfo = el.querySelector('.saldo-info');
