@@ -582,7 +582,7 @@ function notifyNewOrder(p) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const title = 'Nuevo pedido — PAVIMAX';
   const opts = {
-    body: `${p.cliente} — ${productosLabel(p)}${p.observacion_pedido ? ' · ' + p.observacion_pedido : ''}`,
+    body: `${p.cliente} — ${productosLabel(p.productos_pendientes || {})}${p.observacion_pedido ? ' · ' + p.observacion_pedido : ''}`,
     icon: 'icon-192.png',
     badge: 'icon-192.png',
     tag: 'pedido-' + p.id
@@ -747,7 +747,7 @@ function cardPendiente(p) {
     <button class="btn btn-ok">ENTREGAR</button>
   `;
   el.querySelector('.cliente').textContent = p.cliente;
-  el.querySelector('.chips-productos').innerHTML = productosChips(p);
+  el.querySelector('.chips-productos').innerHTML = productosChips(p.productos_pendientes || {});
 
   const ent = el.querySelector('.entrega-info');
   if (p.proxima_fecha) {
