@@ -1054,6 +1054,7 @@ function initSheets() {
     cfg = ss.insertSheet(SH_CONFIG);
     cfg.appendRow(['clave', 'valor']);
     cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
+    cfg.appendRow(['capacidad_unidad', 'kg']);
   } else {
     // Garantizar header y fila capacidad_diaria
     const h = cfg.getRange(1, 1, 1, 2).getValues()[0].map(x => String(x).trim().toLowerCase());
@@ -1065,7 +1066,10 @@ function initSheets() {
       const data = cfg.getRange(2, 1, cfg.getLastRow() - 1, 2).getValues();
       has = data.some(r => String(r[0] || '').trim() === 'capacidad_diaria');
     }
-    if (!has) cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
+    if (!has) {
+      cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
+      setConfigVal_(ss, 'capacidad_unidad', 'kg');
+    }
   }
 
   // Migrar capacidad_diaria de bolsas → kg una sola vez
