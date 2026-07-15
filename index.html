@@ -734,18 +734,18 @@ function productosLabel(obj) {
   const items = [];
   if (Number(obj.bolsas_25kg))   items.push(`${fmtNum(obj.bolsas_25kg)}×25kg`);
   if (Number(obj.bigbag_1000kg)) items.push(`${fmtNum(obj.bigbag_1000kg)} big bag`);
-  if (Number(obj.emul_1l))       items.push(`${fmtNum(obj.emul_1l)}×1L emul`);
-  if (Number(obj.emul_5l))       items.push(`${fmtNum(obj.emul_5l)}×5L emul`);
-  if (Number(obj.emul_20l))      items.push(`${fmtNum(obj.emul_20l)}×20L emul`);
+  if (Number(obj.emul_1l))       items.push(`${fmtNum(obj.emul_1l)}×1L emulsión`);
+  if (Number(obj.emul_5l))       items.push(`${fmtNum(obj.emul_5l)}×5L emulsión`);
+  if (Number(obj.emul_20l))      items.push(`${fmtNum(obj.emul_20l)}×20L emulsión`);
   return items.join(' · ') || 'sin productos';
 }
 function productosChips(obj) {
   const items = [];
   if (Number(obj.bolsas_25kg))   items.push(`${fmtNum(obj.bolsas_25kg)} × 25kg`);
   if (Number(obj.bigbag_1000kg)) items.push(`${fmtNum(obj.bigbag_1000kg)} big bag`);
-  if (Number(obj.emul_1l))       items.push(`${fmtNum(obj.emul_1l)} × 1L emul`);
-  if (Number(obj.emul_5l))       items.push(`${fmtNum(obj.emul_5l)} × 5L emul`);
-  if (Number(obj.emul_20l))      items.push(`${fmtNum(obj.emul_20l)} × 20L emul`);
+  if (Number(obj.emul_1l))       items.push(`${fmtNum(obj.emul_1l)} × 1L emulsión`);
+  if (Number(obj.emul_5l))       items.push(`${fmtNum(obj.emul_5l)} × 5L emulsión`);
+  if (Number(obj.emul_20l))      items.push(`${fmtNum(obj.emul_20l)} × 20L emulsión`);
   return items.map(t => `<span class="chip-producto">${t}</span>`).join('');
 }
 
