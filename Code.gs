@@ -233,25 +233,40 @@ function getEntregados() {
     .map(r => { delete r._fecha_iso; return r; });
 }
 
-// STOCK layout: row 1 = header ("Concepto", "kg"), row 2..5 = data. Todo en kg.
+// STOCK layout (tabla por producto, en UNIDADES):
+//   row 1 = header: Producto | Inicial | Producido | Vendido | Actual
+//   row 2 = bolsas_25kg, row 3 = bigbag_1000kg
+// Inicial (col B) lo edita Marcos; Producido/Vendido/Actual (C/D/E) se reescriben acá.
 function getStock() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const stockSh = ss.getSheetByName(SH_STOCK);
   if (!stockSh) throw new Error('Falta hoja STOCK');
 
-  const inicial   = Number(stockSh.getRange('B2').getValue()) || 0;
-  const producido = sumProducido_();
-  const vendido   = sumVendidoKg_();
-  const actual    = inicial + producido - vendido;
+  const iniBolsas = Number(stockSh.getRange('B2').getValue()) || 0;
+  const iniBigbag = Number(stockSh.getRange('B3').getValue()) || 0;
 
-  stockSh.getRange('B3:B5').setValues([[producido], [vendido], [actual]]);
+  const producido = sumProducidoPorEnvase_();   // { bolsas_25kg, bigbag_1000kg }
+  const vendido   = sumVendidoPorProducto_();    // { producto: unidades }
 
-  return {
-    stock_inicial:   inicial,
-    total_producido: producido,
-    total_vendido:   vendido,
-    stock_actual:    actual
+  const bolsas = {
+    inicial:   iniBolsas,
+    producido: producido.bolsas_25kg,
+    vendido:   vendido.bolsas_25kg || 0,
+    actual:    iniBolsas + producido.bolsas_25kg - (vendido.bolsas_25kg || 0)
   };
+  const bigbag = {
+    inicial:   iniBigbag,
+    producido: producido.bigbag_1000kg,
+    vendido:   vendido.bigbag_1000kg || 0,
+    actual:    iniBigbag + producido.bigbag_1000kg - (vendido.bigbag_1000kg || 0)
+  };
+
+  stockSh.getRange('C2:E3').setValues([
+    [bolsas.producido, bolsas.vendido, bolsas.actual],
+    [bigbag.producido, bigbag.vendido, bigbag.actual]
+  ]);
+
+  return { bolsas_25kg: bolsas, bigbag_1000kg: bigbag };
 }
 
 // PRODUCTO layout: row 1 header (producto, unidad, costo, precio), rows 2-6 = 1 fila por producto
@@ -1007,34 +1022,26 @@ function initSheets() {
     migrarPedidosAParciales_(ss);
   }
 
-  // --- STOCK (con migración de layout viejo) ---
+  // --- STOCK (tabla por producto, en UNIDADES; migra layouts viejos) ---
   let stock = ss.getSheetByName(SH_STOCK);
+  const STOCK_HEADER = ['Producto', 'Inicial', 'Producido', 'Vendido', 'Actual'];
   if (!stock) {
     stock = ss.insertSheet(SH_STOCK);
-    stock.getRange('A1:B5').setValues([
-      ['Concepto',        'Kg'],
-      ['Stock inicial',   0],
-      ['Total producido', 0],
-      ['Total vendido',   0],
-      ['Stock actual',    0]
+  }
+  if (getConfigVal_(ss, 'stock_unidad') !== 'unidades') {
+    // Reset a layout nuevo: iniciales en 0 (el viejo estaba en kg, no se reparte).
+    stock.clear();
+    stock.getRange('A1:E3').setValues([
+      STOCK_HEADER,
+      ['Bolsas 25kg',    0, 0, 0, 0],
+      ['Big bag 1000kg', 0, 0, 0, 0]
     ]);
-    setConfigVal_(ss, 'stock_unidad', 'kg');
+    setConfigVal_(ss, 'stock_unidad', 'unidades');
   } else {
-    const a1 = String(stock.getRange('A1').getValue()).toLowerCase().trim();
-    if (a1 === 'stock_inicial' || a1 === '') {
-      stock.insertRowBefore(1);
-    }
-    stock.getRange('A2').setValue('Stock inicial');
-    stock.getRange('A3').setValue('Total producido');
-    stock.getRange('A4').setValue('Total vendido');
-    stock.getRange('A5').setValue('Stock actual');
-    // Migrar stock inicial de bolsas → kg una sola vez
-    if (getConfigVal_(ss, 'stock_unidad') !== 'kg') {
-      const ini = Number(stock.getRange('B2').getValue()) || 0;
-      stock.getRange('B2').setValue(ini * 25);
-      setConfigVal_(ss, 'stock_unidad', 'kg');
-    }
-    stock.getRange('A1:B1').setValues([['Concepto', 'Kg']]);
+    // Idempotente: asegurar encabezado y etiquetas sin tocar iniciales cargados.
+    stock.getRange('A1:E1').setValues([STOCK_HEADER]);
+    stock.getRange('A2').setValue('Bolsas 25kg');
+    stock.getRange('A3').setValue('Big bag 1000kg');
   }
 
   // --- PRODUCTO ---
@@ -1333,14 +1340,14 @@ function applyFormatting_() {
     cfg.getRange(2, 2, cfg.getMaxRows() - 1, 1).setHorizontalAlignment('right');
   }
 
-  // STOCK
+  // STOCK — tabla por producto, en unidades (sin sufijo kg)
   const stock = ss.getSheetByName(SH_STOCK);
   if (stock) {
-    formatDashboard_(stock, {
-      rows: 5,
-      valueFormat: '#,##0" kg"',
-      highlightRow: 5,
-      colWidths: [260, 220]
+    formatList_(stock, {
+      cols: 5,
+      widths: [180, 110, 110, 110, 110],
+      headerHeight: 36, rowHeight: 30,
+      numberCols: [2, 3, 4, 5]
     });
   }
 

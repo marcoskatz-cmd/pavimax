@@ -405,12 +405,20 @@
 
   <!-- ============ PRODUCCIÓN ============ -->
   <section id="view-produccion" style="display:none">
-    <div class="section-title">Stock</div>
+    <div class="section-title">Stock — Bolsas 25kg</div>
     <div class="stock-box">
-      <div class="stock-row"><span class="lbl">Stock inicial</span><span id="stockIni">—</span></div>
-      <div class="stock-row"><span class="lbl">Producido</span><span id="stockProd">—</span></div>
-      <div class="stock-row"><span class="lbl">Vendido</span><span id="stockVen">—</span></div>
-      <div class="stock-row total"><span>Stock actual</span><span id="stockAct">—</span></div>
+      <div class="stock-row"><span class="lbl">Inicial</span><span id="stockBolsasIni">—</span></div>
+      <div class="stock-row"><span class="lbl">Producido</span><span id="stockBolsasProd">—</span></div>
+      <div class="stock-row"><span class="lbl">Vendido</span><span id="stockBolsasVen">—</span></div>
+      <div class="stock-row total"><span>Actual</span><span id="stockBolsasAct">—</span></div>
+    </div>
+
+    <div class="section-title">Stock — Big bag 1000kg</div>
+    <div class="stock-box">
+      <div class="stock-row"><span class="lbl">Inicial</span><span id="stockBigbagIni">—</span></div>
+      <div class="stock-row"><span class="lbl">Producido</span><span id="stockBigbagProd">—</span></div>
+      <div class="stock-row"><span class="lbl">Vendido</span><span id="stockBigbagVen">—</span></div>
+      <div class="stock-row total"><span>Actual</span><span id="stockBigbagAct">—</span></div>
     </div>
 
     <div class="section-title">Producción del día</div>
@@ -671,10 +679,16 @@ function render() {
     state.entregados.forEach(x => e.appendChild(cardEntregado(x)));
   }
 
-  document.getElementById('stockIni').textContent  = fmtNum(state.stock.stock_inicial) + ' kg';
-  document.getElementById('stockProd').textContent = fmtNum(state.stock.total_producido) + ' kg';
-  document.getElementById('stockVen').textContent  = fmtNum(state.stock.total_vendido) + ' kg';
-  document.getElementById('stockAct').textContent  = fmtNum(state.stock.stock_actual) + ' kg';
+  const stBolsas = state.stock.bolsas_25kg   || {};
+  const stBigbag = state.stock.bigbag_1000kg || {};
+  document.getElementById('stockBolsasIni').textContent  = fmtNum(stBolsas.inicial);
+  document.getElementById('stockBolsasProd').textContent = fmtNum(stBolsas.producido);
+  document.getElementById('stockBolsasVen').textContent  = fmtNum(stBolsas.vendido);
+  document.getElementById('stockBolsasAct').textContent  = fmtNum(stBolsas.actual);
+  document.getElementById('stockBigbagIni').textContent  = fmtNum(stBigbag.inicial);
+  document.getElementById('stockBigbagProd').textContent = fmtNum(stBigbag.producido);
+  document.getElementById('stockBigbagVen').textContent  = fmtNum(stBigbag.vendido);
+  document.getElementById('stockBigbagAct').textContent  = fmtNum(stBigbag.actual);
 
   const pl = document.getElementById('produccionList');
   pl.innerHTML = '';
