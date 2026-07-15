@@ -324,7 +324,7 @@
     <div class="stock-card">
       <div class="lbl">Stock actual</div>
       <div class="num" id="stockNum">—</div>
-      <div class="sub">bolsas</div>
+      <div class="sub">kg material</div>
     </div>
     <div class="stock-card">
       <div class="lbl">Pendientes</div>
@@ -342,10 +342,11 @@
     <span>Capacidad próximos días</span>
     <button class="ico-btn" id="capConfigBtn" title="Cambiar capacidad diaria">⚙️</button>
     <span style="font-size: 11px; color: var(--muted); font-weight: 500; text-transform: none; letter-spacing: 0;">
-      <span id="capDiariaLabel">—</span> kg/día
+      <span id="capDiariaLabel">—</span> bolsas/día
     </span>
   </div>
   <div class="cap-grid" id="capGrid"></div>
+  <div id="capBigbagNote" style="font-size:11px;color:var(--muted);margin-top:6px;display:none"></div>
 
   <div class="section-title">Nuevo pedido</div>
   <div class="form-card">
@@ -421,7 +422,7 @@
 
     <div class="field">
       <label>Valor actual</label>
-      <div class="info-block" id="capActualLabel" style="margin: 0;">— kg/día</div>
+      <div class="info-block" id="capActualLabel" style="margin: 0;">— bolsas/día</div>
     </div>
 
     <div class="field">
@@ -550,6 +551,10 @@ function addProducts(a, b) {
 function materialKg(totals) {
   return (Number(totals.bolsas_25kg) || 0) * 25 + (Number(totals.bigbag_1000kg) || 0) * 1000;
 }
+function bolsasDe(totals) {
+  // La capacidad la limita el embolsado → solo cuentan las bolsas de 25kg.
+  return Number(totals.bolsas_25kg) || 0;
+}
 function pendienteTotals(p) {
   // Suma per-producto de las parciales pendientes de un pedido.
   return (p.parciales_pendientes || []).reduce((acc, pa) => addProducts(acc, sumProducts(pa)), sumProducts({}));
@@ -584,6 +589,15 @@ function renderCapacidad() {
     `;
     grid.appendChild(el);
   });
+  // Big bag comprometidos en el horizonte visible (informativo — no usan embolsado).
+  const note = document.getElementById('capBigbagNote');
+  const bigbagHoriz = horizonte.length ? (horizonte[horizonte.length - 1].bigbag_acum || 0) : 0;
+  if (bigbagHoriz > 0) {
+    note.style.display = '';
+    note.textContent = `📦 Big bag comprometidos (no usan embolsado): ${fmtNum(bigbagHoriz)}`;
+  } else {
+    note.style.display = 'none';
+  }
 }
 
 function renderUsuarios() {
@@ -779,12 +793,12 @@ function updateFeedback() {
   const resumen = `Material: <strong>${fmtNum(kg)} kg</strong>` +
     (emulParts.length ? ` · Emulsión: <strong>${emulParts.join(', ')}</strong>` : '');
 
-  // Chequeo de capacidad diaria: la capacidad está en kg/día, así que comparamos
-  // el material en kg de cada tanda (bolsas×25 + bigbag×1000; emulsión no pesa).
+  // Chequeo de capacidad diaria: la capacidad la limita el EMBOLSADO, así que
+  // comparamos SOLO las bolsas de 25kg por tanda (big bag y emulsión no cuentan).
   const cap = state.capacidad && state.capacidad.horizonte;
   const parciales = state.parcialesForm
-    .filter(p => p.fecha && materialKg(p) > 0)
-    .map(p => ({ fecha: p.fecha, cantidad: materialKg(p) }));
+    .filter(p => p.fecha && bolsasDe(p) > 0)
+    .map(p => ({ fecha: p.fecha, cantidad: bolsasDe(p) }));
 
   el.style.display = '';
   if (!cap || parciales.length === 0) {
@@ -812,9 +826,9 @@ function updateFeedback() {
   } else {
     el.className = 'cap-feedback warn';
     const lineas = conflictos.map(c =>
-      `<li><strong>${formatIso(c.fecha)}</strong>: faltan ${fmtNum(c.falta)} kg (disponible ${fmtNum(c.disp)} kg, querés ${fmtNum(c.cantDia)} kg)</li>`
+      `<li><strong>${formatIso(c.fecha)}</strong>: faltan ${fmtNum(c.falta)} bolsas (disponible ${fmtNum(c.disp)}, querés embolsar ${fmtNum(c.cantDia)})</li>`
     ).join('');
-    el.innerHTML = `${resumen}<br>⚠ Hay tandas sin capacidad suficiente:<ul style="margin:6px 0 0 18px;padding:0">${lineas}</ul>`;
+    el.innerHTML = `${resumen}<br>⚠ Hay tandas que superan la capacidad de embolsado:<ul style="margin:6px 0 0 18px;padding:0">${lineas}</ul>`;
   }
 }
 
@@ -999,16 +1013,16 @@ function updateEditFeedback() {
   const pedido = state.pendientes.find(x => String(x.id) === String(state.editingId));
   if (!pedido) { el.style.display = 'none'; return; }
 
-  // Para chequear capacidad correctamente (en kg): las parciales actuales del pedido
+  // Chequeo de capacidad (en BOLSAS de embolsado): las parciales actuales del pedido
   // ya están en el "committed". Hay que sumarlas de vuelta y restar las nuevas.
   const fechasViejas = {};
   (pedido.parciales_pendientes || []).forEach(pa => {
-    fechasViejas[pa.fecha_iso] = (fechasViejas[pa.fecha_iso] || 0) + materialKg(pa);
+    fechasViejas[pa.fecha_iso] = (fechasViejas[pa.fecha_iso] || 0) + bolsasDe(pa);
   });
   const fechasNuevas = {};
   state.editParciales
-    .filter(p => p.fecha && materialKg(p) > 0)
-    .forEach(p => { fechasNuevas[p.fecha] = (fechasNuevas[p.fecha] || 0) + materialKg(p); });
+    .filter(p => p.fecha && bolsasDe(p) > 0)
+    .forEach(p => { fechasNuevas[p.fecha] = (fechasNuevas[p.fecha] || 0) + bolsasDe(p); });
 
   const allFechas = new Set([...Object.keys(fechasViejas), ...Object.keys(fechasNuevas)]);
   const conflictos = [];
@@ -1074,7 +1088,7 @@ async function saveEditParciales() {
 function openCapModal() {
   state.capPasoConfirm = false;
   document.getElementById('capActualLabel').textContent =
-    state.capacidadDiaria != null ? `${fmtNum(state.capacidadDiaria)} kg/día` : '— kg/día';
+    state.capacidadDiaria != null ? `${fmtNum(state.capacidadDiaria)} bolsas/día` : '— bolsas/día';
   document.getElementById('capNuevoInput').value = state.capacidadDiaria || '';
   document.getElementById('capConfirmMsg').style.display = 'none';
   document.getElementById('capContinuarBtn').style.display = '';
@@ -1096,7 +1110,7 @@ function capPasoContinuar() {
   state.capPasoConfirm = true;
   document.getElementById('capConfirmMsg').style.display = '';
   document.getElementById('capConfirmMsg').innerHTML =
-    `Vas a cambiar la capacidad de <strong>${fmtNum(state.capacidadDiaria)}</strong> a <strong>${fmtNum(nuevo)}</strong> kg/día. ¿Confirmás?`;
+    `Vas a cambiar la capacidad de <strong>${fmtNum(state.capacidadDiaria)}</strong> a <strong>${fmtNum(nuevo)}</strong> bolsas/día. ¿Confirmás?`;
   document.getElementById('capContinuarBtn').style.display = 'none';
   document.getElementById('capConfirmBtn').style.display = '';
   document.getElementById('capNuevoInput').disabled = true;

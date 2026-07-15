@@ -24,7 +24,7 @@ const SH_PARCIALES  = 'ENTREGAS_PARCIALES';
 const SH_CONFIG     = 'CONFIG';
 
 // === DEFAULTS ===
-const CAPACIDAD_DIARIA_DEFAULT = 3000;  // kg/día si CONFIG no tiene valor (≈120 bolsas)
+const CAPACIDAD_DIARIA_DEFAULT = 120;  // bolsas/día (embolsado) si CONFIG no tiene valor
 const HORIZONTE_DIAS           = 14;   // ventana hacia adelante para calcular capacidad
 const USUARIOS_SEED            = ['Julia Katz', 'Agustin De Gregorio', 'Gerardo Guerrero'];
 
@@ -454,20 +454,21 @@ function cargarPedido(body) {
 }
 
 // === CAPACIDAD ===
-// Devuelve un breakdown día por día de capacidad acumulada vs. bolsas comprometidas
-// (suma de parciales pendientes).
+// La capacidad la limita el EMBOLSADO: cuántas BOLSAS de 25kg se pueden embolsar
+// por día. Los big bag NO pasan por el embolsado (se llenan directo) y la emulsión
+// tampoco, así que no consumen capacidad — el big bag comprometido se informa aparte.
+// El stock de materia prima NO entra en este cálculo (la materia prima no es el límite).
 function getCapacidad() {
-  const stockObj = getStock();
-  const stockActual = stockObj.stock_actual;
-  const capDiaria = getCapacidadDiaria();
+  const capDiaria = getCapacidadDiaria();  // bolsas/día
 
   const parciales = readSheet(SH_PARCIALES)
     .filter(pa => String(pa.estado || '').toLowerCase() === 'pendiente')
     .map(pa => ({
       fechaIso: toIsoDate_(pa.fecha_planeada),
-      cantidad: materialKg_(pa)
+      bolsas:   Number(pa.bolsas_25kg) || 0,
+      bigbag:   Number(pa.bigbag_1000kg) || 0
     }))
-    .filter(p => p.fechaIso && p.cantidad > 0);
+    .filter(p => p.fechaIso);
 
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
@@ -477,21 +478,22 @@ function getCapacidad() {
     const d = new Date(hoy);
     d.setDate(hoy.getDate() + i);
     const iso = toIsoDate_(d);
-    const capacidadAcum = stockActual + capDiaria * i;
-    const committedAcum = parciales
-      .filter(p => p.fechaIso <= iso)
-      .reduce((s, p) => s + p.cantidad, 0);
+    // Bolsas que se pueden embolsar acumuladas hasta el día i (hoy cuenta como día 1).
+    const capacidadAcum = capDiaria * (i + 1);
+    const alcanzadas = parciales.filter(p => p.fechaIso <= iso);
+    const committedAcum = alcanzadas.reduce((s, p) => s + p.bolsas, 0);
+    const bigbagAcum    = alcanzadas.reduce((s, p) => s + p.bigbag, 0);
     horizonte.push({
       fecha: iso,
       dia_offset: i,
       capacidad_acum: capacidadAcum,
-      committed_acum: committedAcum,
+      committed_acum: committedAcum,       // bolsas comprometidas
+      bigbag_acum:    bigbagAcum,          // big bag comprometidos (informativo)
       disponible: capacidadAcum - committedAcum
     });
   }
   return {
-    capacidad_diaria: capDiaria,
-    stock_actual:     stockActual,
+    capacidad_diaria: capDiaria,           // bolsas/día
     horizonte:        horizonte
   };
 }
@@ -947,12 +949,13 @@ function initSheets() {
   }
 
   // --- CONFIG ---
+  // capacidad_diaria queda en BOLSAS/día (la capacidad la limita el embolsado,
+  // no la materia prima). No se convierte a kg.
   let cfg = ss.getSheetByName(SH_CONFIG);
   if (!cfg) {
     cfg = ss.insertSheet(SH_CONFIG);
     cfg.appendRow(['clave', 'valor']);
     cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
-    cfg.appendRow(['capacidad_unidad', 'kg']);
   } else {
     // Garantizar header y fila capacidad_diaria
     const h = cfg.getRange(1, 1, 1, 2).getValues()[0].map(x => String(x).trim().toLowerCase());
@@ -964,17 +967,7 @@ function initSheets() {
       const data = cfg.getRange(2, 1, cfg.getLastRow() - 1, 2).getValues();
       has = data.some(r => String(r[0] || '').trim() === 'capacidad_diaria');
     }
-    if (!has) {
-      cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
-      setConfigVal_(ss, 'capacidad_unidad', 'kg');
-    }
-  }
-
-  // Migrar capacidad_diaria de bolsas → kg una sola vez
-  if (getConfigVal_(ss, 'capacidad_unidad') !== 'kg') {
-    const capViejo = Number(getConfigVal_(ss, 'capacidad_diaria')) || CAPACIDAD_DIARIA_DEFAULT;
-    setConfigVal_(ss, 'capacidad_diaria', capViejo * 25);
-    setConfigVal_(ss, 'capacidad_unidad', 'kg');
+    if (!has) cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
   }
 
   // --- ENTREGAS_PARCIALES ---

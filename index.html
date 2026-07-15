@@ -333,6 +333,15 @@
   }
   .sound-toggle.on { color: var(--ok-dark); border-color: var(--ok); background: #f0fdf4; }
 
+  .refresh-btn {
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--muted); padding: 8px 10px; border-radius: 8px;
+    font-size: 15px; cursor: pointer; line-height: 1; margin-left: 8px;
+  }
+  .refresh-btn:disabled { opacity: .6; cursor: default; }
+  .refresh-btn.spin { animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   input[type="file"] { display: none; }
 
   .status-bar {
@@ -346,6 +355,7 @@
   <button class="back" id="backBtn" style="display:none">← Atrás</button>
   <div class="brand"><img src="logo.png" alt="PAVIMAX" onerror="this.outerHTML='<span class=\'brand-text\'>PAVIMAX</span>'"></div>
   <button id="soundBtn" class="sound-toggle" style="display:none">🔔 sonido</button>
+  <button id="refreshBtn" class="refresh-btn" title="Actualizar ahora" aria-label="Actualizar">🔄</button>
 </header>
 
 <main>
@@ -478,7 +488,7 @@ const CONFIG = {
   API_URL:   'https://script.google.com/macros/s/AKfycbwVT-G9YOvStVO12fwGfYLGfyag92uOssxx5YmfTN7WIbt1D7WacuLra-7zSI9Phzl2_g/exec',
   SHEET_URL: 'https://docs.google.com/spreadsheets/d/1r3LxaldzRNRA3GMenSbOfPk1nXZkjQvo9BJOa01dqv0/edit?usp=sharing',
   DRIVE_URL: 'https://drive.google.com/drive/folders/12mjpJkxDplBqp4XPnrgm9uz2gWWe2f-z?usp=drive_link',
-  POLL_MS:   30000
+  POLL_MS:   300000
 };
 
 /* ===== STATE ===== */
@@ -511,6 +521,11 @@ document.getElementById('prodBtn').addEventListener('click', guardarProduccion);
 document.getElementById('prodBolsas').addEventListener('input', updateProdKgPreview);
 document.getElementById('prodBigbag').addEventListener('input', updateProdKgPreview);
 document.getElementById('usuarioEntrega').addEventListener('change', onUsuarioEntregaChange);
+document.getElementById('refreshBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true; btn.classList.add('spin');
+  try { await fetchAll(); } finally { btn.disabled = false; btn.classList.remove('spin'); }
+});
 
 function onUsuarioEntregaChange(e) {
   const inp = document.getElementById('usuarioEntregaNuevo');
@@ -603,7 +618,7 @@ async function fetchAll() {
     return;
   }
   try {
-    const r = await fetch(CONFIG.API_URL + '?action=all', { method: 'GET' });
+    const r = await fetch(CONFIG.API_URL + '?action=all&_t=' + Date.now(), { method: 'GET', cache: 'no-store' });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
     const prev = state.knownIds;
