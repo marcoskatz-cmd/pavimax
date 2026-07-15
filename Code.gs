@@ -24,9 +24,18 @@ const SH_PARCIALES  = 'ENTREGAS_PARCIALES';
 const SH_CONFIG     = 'CONFIG';
 
 // === DEFAULTS ===
-const CAPACIDAD_DIARIA_DEFAULT = 120;  // bolsas/día si CONFIG no tiene valor
+const CAPACIDAD_DIARIA_DEFAULT = 3000;  // kg/día si CONFIG no tiene valor (≈120 bolsas)
 const HORIZONTE_DIAS           = 14;   // ventana hacia adelante para calcular capacidad
 const USUARIOS_SEED            = ['Julia Katz', 'Agustin De Gregorio', 'Gerardo Guerrero'];
+
+// === PRODUCTOS (multi-producto: material en kg, emulsión en botellas sin stock/producción) ===
+const PRODUCTOS = ['bolsas_25kg', 'bigbag_1000kg', 'emul_1l', 'emul_5l', 'emul_20l'];
+const KG_POR = { bolsas_25kg: 25, bigbag_1000kg: 1000, emul_1l: 0, emul_5l: 0, emul_20l: 0 };
+const PARC_HEADERS = [
+  'id_parcial', 'id_pedido', 'fecha_planeada',
+  'bolsas_25kg', 'bigbag_1000kg', 'emul_1l', 'emul_5l', 'emul_20l',
+  'estado', 'fecha_entrega', 'observacion_entrega', 'link_remito', 'usuario_entrega'
+];
 
 // === ESTILO ===
 const COLOR_BRAND       = '#157f3d';
@@ -111,13 +120,15 @@ function getProduccion() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sh = ss.getSheetByName(SH_PRODUCCION);
   if (!sh || sh.getLastRow() < 2) return [];
-  const values = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+  const values = sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(sh.getLastColumn(), 4)).getValues();
   return values
     .filter(row => row[0])
-    .map(([fecha, cantidad]) => ({
+    .map(([fecha, bolsas, bigbag, kg]) => ({
       fecha: fmt(fecha),
       _ts: fecha instanceof Date ? fecha.getTime() : 0,
-      cantidad: Number(cantidad) || 0
+      bolsas_25kg: Number(bolsas) || 0,
+      bigbag_1000kg: Number(bigbag) || 0,
+      kg_total: Number(kg) || 0
     }))
     .sort((a, b) => b._ts - a._ts)
     .slice(0, 5)
@@ -129,37 +140,41 @@ function getPendientes() {
   const parciales = readSheet(SH_PARCIALES);
   const out = [];
   pedidos.forEach(p => {
-    const total = Number(p.cantidad_bolsas) || 0;
     const misParciales = parciales.filter(pa => String(pa.id_pedido) === String(p.id));
     const entregadas = misParciales.filter(pa => String(pa.estado || '').toLowerCase() === 'entregada');
     const pendientesP = misParciales
       .filter(pa => String(pa.estado || '').toLowerCase() === 'pendiente')
       .sort((a, b) => (toIsoDate_(a.fecha_planeada) || '9999').localeCompare(toIsoDate_(b.fecha_planeada) || '9999'));
-    const entregado = entregadas.reduce((s, pa) => s + (Number(pa.cantidad_entregada) || 0), 0);
-    const saldo = total - entregado;
-    if (saldo <= 0) return;  // ya está entregado completo
+    if (pendientesP.length === 0) return;  // ya está entregado completo
+
+    const productos_total = {};
+    const productos_pendientes = {};
+    PRODUCTOS.forEach(k => {
+      productos_total[k]      = misParciales.reduce((s, pa) => s + (Number(pa[k]) || 0), 0);
+      productos_pendientes[k] = pendientesP.reduce((s, pa) => s + (Number(pa[k]) || 0), 0);
+    });
+    const material_kg = materialKg_(productos_pendientes);
 
     const proxima = pendientesP[0];
-    const estado = entregado > 0 ? 'parcial' : 'pendiente';
+    const estado = entregadas.length > 0 ? 'parcial' : 'pendiente';
     out.push({
       id: p.id,
       fecha_carga: fmt(p.fecha_carga),
       usuario_carga: p.usuario_carga || '',
       cliente: p.cliente,
-      cantidad_bolsas: total,
-      cantidad_entregada: entregado,
-      saldo: saldo,
+      productos_total: productos_total,
+      productos_pendientes: productos_pendientes,
+      material_kg: material_kg,
       observacion_pedido: p.observacion_pedido || '',
       estado: estado,
       proxima_fecha: proxima ? fmtDate_(proxima.fecha_planeada) : '',
       proxima_fecha_iso: proxima ? toIsoDate_(proxima.fecha_planeada) : '',
-      proxima_cantidad: proxima ? (Number(proxima.cantidad_planeada) || 0) : 0,
-      parciales_pendientes: pendientesP.map(pa => ({
-        id_parcial: pa.id_parcial,
-        fecha: fmtDate_(pa.fecha_planeada),
-        fecha_iso: toIsoDate_(pa.fecha_planeada),
-        cantidad: Number(pa.cantidad_planeada) || 0
-      })),
+      parciales_pendientes: pendientesP.map(pa => {
+        const o = { id_parcial: pa.id_parcial, fecha: fmtDate_(pa.fecha_planeada), fecha_iso: toIsoDate_(pa.fecha_planeada) };
+        PRODUCTOS.forEach(k => { o[k] = Number(pa[k]) || 0; });
+        o.material_kg = materialKg_(pa);
+        return o;
+      }),
       // Compat con clientes viejos
       fecha_entrega_solicitada: proxima ? fmtDate_(proxima.fecha_planeada) : '',
       fecha_entrega_iso:        proxima ? toIsoDate_(proxima.fecha_planeada) : ''
@@ -174,28 +189,35 @@ function getEntregados() {
   const parciales = readSheet(SH_PARCIALES);
   const out = [];
   pedidos.forEach(p => {
-    const total = Number(p.cantidad_bolsas) || 0;
     const misParciales = parciales.filter(pa => String(pa.id_pedido) === String(p.id));
     if (misParciales.length === 0) return;
     const entregadas = misParciales.filter(pa => String(pa.estado || '').toLowerCase() === 'entregada');
-    const entregado = entregadas.reduce((s, pa) => s + (Number(pa.cantidad_entregada) || 0), 0);
-    if (entregado < total || entregado === 0) return; // no completamente entregado
+    const pendientes = misParciales.filter(pa => String(pa.estado || '').toLowerCase() !== 'entregada');
+    if (entregadas.length === 0 || pendientes.length > 0) return; // no completamente entregado
+
+    const productos_total = {};
+    PRODUCTOS.forEach(k => { productos_total[k] = misParciales.reduce((s, pa) => s + (Number(pa[k]) || 0), 0); });
+
     // Ordenar entregas más recientes primero
     const entregasOrd = entregadas
-      .map(pa => ({
-        fecha:      fmt(pa.fecha_entrega),
-        fecha_iso:  toIsoDate_(pa.fecha_entrega),
-        cantidad:   Number(pa.cantidad_entregada) || 0,
-        observacion: pa.observacion_entrega || '',
-        link_remito: pa.link_remito || '',
-        usuario_entrega: pa.usuario_entrega || ''
-      }))
+      .map(pa => {
+        const o = {
+          fecha:      fmt(pa.fecha_entrega),
+          fecha_iso:  toIsoDate_(pa.fecha_entrega),
+          observacion: pa.observacion_entrega || '',
+          link_remito: pa.link_remito || '',
+          usuario_entrega: pa.usuario_entrega || ''
+        };
+        PRODUCTOS.forEach(k => { o[k] = Number(pa[k]) || 0; });
+        o.material_kg = materialKg_(pa);
+        return o;
+      })
       .sort((a, b) => (b.fecha_iso || '').localeCompare(a.fecha_iso || ''));
     const ultima = entregasOrd[0] || {};
     out.push({
       id: p.id,
       cliente: p.cliente,
-      cantidad_bolsas: total,
+      productos_total: productos_total,
       observacion_pedido: p.observacion_pedido || '',
       fecha_entrega: ultima.fecha || '',
       observacion_entrega: ultima.observacion || '',
@@ -211,7 +233,7 @@ function getEntregados() {
     .map(r => { delete r._fecha_iso; return r; });
 }
 
-// STOCK layout: row 1 = header ("Concepto", "Bolsas"), row 2..5 = data
+// STOCK layout: row 1 = header ("Concepto", "kg"), row 2..5 = data. Todo en kg.
 function getStock() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const stockSh = ss.getSheetByName(SH_STOCK);
@@ -219,7 +241,7 @@ function getStock() {
 
   const inicial   = Number(stockSh.getRange('B2').getValue()) || 0;
   const producido = sumProducido_();
-  const vendido   = sumVendido_();
+  const vendido   = sumVendidoKg_();
   const actual    = inicial + producido - vendido;
 
   stockSh.getRange('B3:B5').setValues([[producido], [vendido], [actual]]);
@@ -232,324 +254,203 @@ function getStock() {
   };
 }
 
-// PRODUCTO layout: row 1 header, rows 2-5 costos, row 6 costo total (calc), row 7 precio
+// PRODUCTO layout: row 1 header (producto, unidad, costo, precio), rows 2-6 = 1 fila por producto
+function leerPrecios_() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const prodSh = ss.getSheetByName(SH_PRODUCTO);
+  const out = {};
+  if (!prodSh || prodSh.getLastRow() < 2) return out;
+  const rows = prodSh.getRange(2, 1, prodSh.getLastRow() - 1, 4).getValues();
+  rows.forEach(([producto, , costo, precio]) => {
+    const key = String(producto || '').trim();
+    if (key) out[key] = { costo: Number(costo) || 0, precio: Number(precio) || 0 };
+  });
+  return out;
+}
+
 // GANANCIAS layout: row 1 header, rows 2-7 datos
 function getGanancias() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  const prodSh = ss.getSheetByName(SH_PRODUCTO);
-  const ganSh  = ss.getSheetByName(SH_GANANCIAS);
-  if (!prodSh || !ganSh) {
-    return { error: 'Faltan hojas PRODUCTO o GANANCIAS — corré initSheets() una vez' };
+  const ganSh = ss.getSheetByName(SH_GANANCIAS);
+  if (!ganSh) {
+    return { error: 'Falta hoja GANANCIAS — corré initSheets() una vez' };
   }
 
-  const costos = prodSh.getRange('B2:B5').getValues();
-  let costoUnit = 0;
-  costos.forEach(([n]) => { costoUnit += Number(n) || 0; });
-  prodSh.getRange('B6').setValue(costoUnit);
-  const precioUnit = Number(prodSh.getRange('B7').getValue()) || 0;
+  const precios       = leerPrecios_();
+  const vendido        = sumVendidoPorProducto_();
+  const producidoEnv   = sumProducidoPorEnvase_();
+
+  let ingresos = 0;
+  PRODUCTOS.forEach(k => { ingresos += vendido[k] * (precios[k] ? precios[k].precio : 0); });
+
+  let costo = producidoEnv.bolsas_25kg   * (precios.bolsas_25kg   ? precios.bolsas_25kg.costo   : 0)
+            + producidoEnv.bigbag_1000kg * (precios.bigbag_1000kg ? precios.bigbag_1000kg.costo : 0);
+  ['emul_1l', 'emul_5l', 'emul_20l'].forEach(k => { costo += vendido[k] * (precios[k] ? precios[k].costo : 0); });
+
+  const ganancia = ingresos - costo;
+  const margen   = ingresos > 0 ? Math.round(ganancia / ingresos * 1000) / 10 : 0;
 
   const producido = sumProducido_();
-  const vendido   = sumVendido_();
-
-  const costoTotal = producido * costoUnit;
-  const ingresos   = vendido   * precioUnit;
-  const ganancia   = ingresos - costoTotal;
-  const margen     = ingresos > 0 ? Math.round(ganancia / ingresos * 1000) / 10 : 0;
+  const vendidoKg = sumVendidoKg_();
 
   ganSh.getRange('B2:B7').setValues([
-    [producido], [vendido], [costoTotal], [ingresos], [ganancia], [margen]
+    [producido], [vendidoKg], [ingresos], [costo], [ganancia], [margen]
   ]);
 
   return {
-    bolsas_producidas: producido,
-    bolsas_vendidas:   vendido,
-    costo_unitario:    costoUnit,
-    precio_unitario:   precioUnit,
-    costo_total:       costoTotal,
-    ingresos:          ingresos,
-    ganancia_bruta:    ganancia,
-    margen_pct:        margen
+    material_producido_kg: producido,
+    material_vendido_kg:   vendidoKg,
+    ingresos:               ingresos,
+    costo_total:             costo,
+    ganancia_bruta:          ganancia,
+    margen_pct:              margen,
+    vendido:                 vendido
   };
 }
 
 // === ESCRITURA ===
 /**
- * Entrega de un pedido (puede ser parcial).
- * body: { id, cantidad, observacion, foto_base64, foto_mime, usuario_entrega }
- *
- * Algoritmo:
- *  - Tomar parciales pendientes ordenadas por fecha.
- *  - La primera pendiente se "convierte" en una entrega con cantidad real.
- *  - Si entregó MENOS que la planeada → partir: queda nueva parcial pendiente con el resto.
- *  - Si entregó MÁS que la planeada → consumir parciales futuras (reducir / eliminar).
- *  - Saldo total = cantidad_bolsas - sum(entregadas). Si 0 → estado='entregado', si <total → 'parcial'.
+ * Entrega de UNA tanda (parcial) completa.
+ * body: { id_parcial, observacion, foto_base64, foto_mime, usuario_entrega }
+ * Marca esa parcial como entregada, sube la foto y recalcula el estado del pedido.
  */
 function entregarPedido(body) {
-  const id           = String(body.id || '').trim();
-  const cantidad     = Number(body.cantidad);
-  const observacion  = String(body.observacion || '').trim();
-  const fotoB64      = body.foto_base64 || '';
-  const mime         = body.foto_mime || 'image/jpeg';
-  const usuarioEntr  = String(body.usuario_entrega || '').trim();
-  if (!id)           throw new Error('Falta id');
-  if (!cantidad || cantidad <= 0) throw new Error('Cantidad inválida');
-  if (!usuarioEntr)  throw new Error('Falta usuario_entrega');
+  const idParc      = String(body.id_parcial || '').trim();
+  const observacion = String(body.observacion || '').trim();
+  const fotoB64     = body.foto_base64 || '';
+  const mime        = body.foto_mime || 'image/jpeg';
+  const usuarioEntr = String(body.usuario_entrega || '').trim();
+  if (!idParc)      throw new Error('Falta id_parcial');
+  if (!usuarioEntr) throw new Error('Falta usuario_entrega');
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const shPed  = ss.getSheetByName(SH_PEDIDOS);
   const shParc = ss.getSheetByName(SH_PARCIALES);
-  if (!shPed)  throw new Error('Falta hoja PEDIDOS');
-  if (!shParc) throw new Error('Falta hoja ENTREGAS_PARCIALES — corré initSheets()');
-
-  // Cargar pedido
-  const pedHeaders = shPed.getRange(1, 1, 1, shPed.getLastColumn()).getValues()[0]
-    .map(h => String(h).trim());
-  const colId      = pedHeaders.indexOf('id') + 1;
-  const colCliente = pedHeaders.indexOf('cliente') + 1;
-  const colCant    = pedHeaders.indexOf('cantidad_bolsas') + 1;
-  const colEstado  = pedHeaders.indexOf('estado') + 1;
-  if (colId < 1) throw new Error('PEDIDOS sin columna id');
-
-  let rowPed = -1, total = 0, cliente = '';
-  const lastP = shPed.getLastRow();
-  if (lastP >= 2) {
-    const data = shPed.getRange(2, 1, lastP - 1, shPed.getLastColumn()).getValues();
-    for (let i = 0; i < data.length; i++) {
-      if (String(data[i][colId - 1]) === id) {
-        rowPed   = i + 2;
-        total    = Number(data[i][colCant - 1]) || 0;
-        cliente  = String(data[i][colCliente - 1] || '');
-        break;
-      }
-    }
+  const pH = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const cI = n => pH.indexOf(n) + 1;
+  const rows = shParc.getLastRow() >= 2
+    ? shParc.getRange(2, 1, shParc.getLastRow() - 1, shParc.getLastColumn()).getValues() : [];
+  let row = -1, idPedido = '', cliente = '';
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][cI('id_parcial') - 1]) === idParc) { row = i + 2; idPedido = String(rows[i][cI('id_pedido') - 1]); break; }
   }
-  if (rowPed < 0) throw new Error('Pedido no encontrado: ' + id);
+  if (row < 0) throw new Error('Tanda no encontrada: ' + idParc);
+  if (String(shParc.getRange(row, cI('estado')).getValue()).toLowerCase() === 'entregada')
+    throw new Error('Esa tanda ya fue entregada');
 
-  // Cargar parciales del pedido
-  const parcHeaders = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0]
-    .map(h => String(h).trim());
-  const cI = name => parcHeaders.indexOf(name) + 1;
-  const cIdParc      = cI('id_parcial');
-  const cIdPed       = cI('id_pedido');
-  const cFechaP      = cI('fecha_planeada');
-  const cCantP       = cI('cantidad_planeada');
-  const cEstP        = cI('estado');
-  const cFechaE      = cI('fecha_entrega');
-  const cCantE       = cI('cantidad_entregada');
-  const cObsE        = cI('observacion_entrega');
-  const cLink        = cI('link_remito');
-  const cUserE       = cI('usuario_entrega');
-  if (cIdParc < 1 || cIdPed < 1 || cFechaP < 1 || cCantP < 1 || cEstP < 1)
-    throw new Error('ENTREGAS_PARCIALES sin columnas requeridas');
+  // cliente para nombre de archivo
+  const pedH = shPed.getRange(1, 1, 1, shPed.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const cPI = n => pedH.indexOf(n) + 1;
+  if (shPed.getLastRow() >= 2) {
+    const pr = shPed.getRange(2, 1, shPed.getLastRow() - 1, shPed.getLastColumn()).getValues();
+    for (let i = 0; i < pr.length; i++) if (String(pr[i][cPI('id') - 1]) === idPedido) { cliente = String(pr[i][cPI('cliente') - 1] || ''); break; }
+  }
 
-  const lastPa = shParc.getLastRow();
-  const allRows = lastPa >= 2 ? shParc.getRange(2, 1, lastPa - 1, shParc.getLastColumn()).getValues() : [];
-  // Calcular entregado total y separar pendientes
-  let entregado = 0;
-  const pendientesIdx = []; // {row, cantidad, fechaIso}
-  let maxIdParc = 0;
-  allRows.forEach((r, i) => {
-    const ipa = Number(r[cIdParc - 1]);
-    if (!isNaN(ipa) && ipa > maxIdParc) maxIdParc = ipa;
-    if (String(r[cIdPed - 1]) !== id) return;
-    const est = String(r[cEstP - 1] || '').toLowerCase();
-    if (est === 'entregada') {
-      entregado += Number(r[cCantE - 1]) || 0;
-    } else if (est === 'pendiente') {
-      pendientesIdx.push({
-        row: i + 2,
-        cantidad: Number(r[cCantP - 1]) || 0,
-        fechaIso: toIsoDate_(r[cFechaP - 1])
-      });
-    }
-  });
-  pendientesIdx.sort((a, b) => (a.fechaIso || '9999').localeCompare(b.fechaIso || '9999'));
-
-  const saldo = total - entregado;
-  if (cantidad > saldo) throw new Error('No podés entregar ' + cantidad + ': el saldo es ' + saldo);
-  if (pendientesIdx.length === 0) throw new Error('No hay parciales pendientes (saldo: ' + saldo + ')');
-
-  // Subir foto si vino
   let linkRemito = '';
   if (fotoB64) {
     const folder = DriveApp.getFolderById(FOLDER_ID);
     const cliSlug = cliente.replace(/[^a-z0-9]+/gi, '_');
     const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
-    const name = `remito_${id}_${cliSlug}_${stamp}.jpg`;
-    const blob = Utilities.newBlob(Utilities.base64Decode(fotoB64), mime, name);
+    const blob = Utilities.newBlob(Utilities.base64Decode(fotoB64), mime, `remito_${idPedido}_${cliSlug}_${stamp}.jpg`);
     const file = folder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     linkRemito = file.getUrl();
   }
 
-  // Convertir la primera pendiente en entregada con la cantidad real.
-  const primera = pendientesIdx[0];
-  const ahora = new Date();
-  shParc.getRange(primera.row, cEstP).setValue('entregada');
-  shParc.getRange(primera.row, cCantE).setValue(cantidad);
-  shParc.getRange(primera.row, cFechaE).setValue(ahora);
-  if (cObsE  > 0) shParc.getRange(primera.row, cObsE).setValue(observacion);
-  if (cLink  > 0) shParc.getRange(primera.row, cLink).setValue(linkRemito);
-  if (cUserE > 0) shParc.getRange(primera.row, cUserE).setValue(usuarioEntr);
+  shParc.getRange(row, cI('estado')).setValue('entregada');
+  shParc.getRange(row, cI('fecha_entrega')).setValue(new Date());
+  if (cI('observacion_entrega') > 0) shParc.getRange(row, cI('observacion_entrega')).setValue(observacion);
+  if (cI('link_remito') > 0)         shParc.getRange(row, cI('link_remito')).setValue(linkRemito);
+  if (cI('usuario_entrega') > 0)     shParc.getRange(row, cI('usuario_entrega')).setValue(usuarioEntr);
 
-  let diff = cantidad - primera.cantidad;
-  if (diff < 0) {
-    // Entregó menos: queda nueva parcial pendiente con el resto, misma fecha
-    const fechaCell = shParc.getRange(primera.row, cFechaP).getValue();
-    const nuevaId = maxIdParc + 1;
-    const newRow = parcHeaders.map(h => {
-      if (h === 'id_parcial')        return nuevaId;
-      if (h === 'id_pedido')         return id;
-      if (h === 'fecha_planeada')    return fechaCell;
-      if (h === 'cantidad_planeada') return -diff;
-      if (h === 'estado')            return 'pendiente';
-      return '';
-    });
-    shParc.appendRow(newRow);
-  } else if (diff > 0) {
-    // Entregó más: consumir pendientes siguientes
-    const filasABorrar = [];
-    for (let i = 1; i < pendientesIdx.length && diff > 0; i++) {
-      const p = pendientesIdx[i];
-      if (p.cantidad <= diff) {
-        filasABorrar.push(p.row);
-        diff -= p.cantidad;
-      } else {
-        shParc.getRange(p.row, cCantP).setValue(p.cantidad - diff);
-        diff = 0;
-      }
+  // Recalcular estado del pedido
+  const todas = (shParc.getLastRow() >= 2
+    ? shParc.getRange(2, 1, shParc.getLastRow() - 1, shParc.getLastColumn()).getValues() : [])
+    .filter(r => String(r[cI('id_pedido') - 1]) === idPedido);
+  const entregadas = todas.filter(r => String(r[cI('estado') - 1]).toLowerCase() === 'entregada').length;
+  const estado = entregadas >= todas.length ? 'entregado' : (entregadas > 0 ? 'parcial' : 'pendiente');
+  if (cPI('estado') > 0) {
+    for (let i = 0; i < shPed.getLastRow() - 1; i++) {
+      if (String(shPed.getRange(i + 2, cPI('id')).getValue()) === idPedido) { shPed.getRange(i + 2, cPI('estado')).setValue(estado); break; }
     }
-    // Borrar de abajo hacia arriba para no romper índices
-    filasABorrar.sort((a, b) => b - a).forEach(r => shParc.deleteRow(r));
   }
-
-  // Recalcular estado del pedido en la hoja PEDIDOS
-  if (colEstado > 0) {
-    const nuevoEntregado = entregado + cantidad;
-    const nuevoEstado = nuevoEntregado >= total ? 'entregado' :
-                        (nuevoEntregado > 0 ? 'parcial' : 'pendiente');
-    shPed.getRange(rowPed, colEstado).setValue(nuevoEstado);
-  }
-
   SpreadsheetApp.flush();
-  return { id, cantidad_entregada: cantidad, link_remito: linkRemito, saldo: total - entregado - cantidad };
+  return { id_parcial: idParc, id_pedido: idPedido, estado, link_remito: linkRemito };
 }
 
 function registrarProduccion(body) {
-  const cantidad = Number(body.cantidad);
+  const bolsas = Number(body.bolsas_25kg) || 0;
+  const bigbag = Number(body.bigbag_1000kg) || 0;
   const operario = String(body.operario || '').trim();
-  if (!cantidad || cantidad <= 0) throw new Error('Cantidad inválida');
+  if (bolsas <= 0 && bigbag <= 0) throw new Error('Cargá al menos bolsas o big bag');
+  const kg = bolsas * 25 + bigbag * 1000;
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sh = ss.getSheetByName(SH_PRODUCCION);
   if (!sh) throw new Error('Falta hoja PRODUCCION');
-  sh.appendRow([new Date(), cantidad, operario]);
-  return { fecha: new Date().toISOString(), cantidad, operario };
+  sh.appendRow([new Date(), bolsas, bigbag, kg, operario]);
+  return { fecha: new Date().toISOString(), bolsas_25kg: bolsas, bigbag_1000kg: bigbag, kg_total: kg };
 }
 
 /**
- * Cargar pedido con usuario que carga y opcionalmente parciales.
+ * Cargar pedido con usuario que carga y parciales multi-producto.
  * body: {
- *   cliente, cantidad, observacion, usuario_carga,
- *   parciales: [{ fecha_entrega: 'YYYY-MM-DD', cantidad: N }, ...]
+ *   cliente, observacion, usuario_carga,
+ *   parciales: [{ fecha_entrega: 'YYYY-MM-DD', bolsas_25kg, bigbag_1000kg, emul_1l, emul_5l, emul_20l }, ...]
  * }
- * Si parciales no viene o está vacío, usa body.fecha_entrega como única parcial.
  */
 function cargarPedido(body) {
   const cliente      = String(body.cliente || '').trim();
-  const cantidad     = Number(body.cantidad);
   const obs          = String(body.observacion || '').trim();
   const usuarioCarga = String(body.usuario_carga || '').trim();
-  if (!cliente)  throw new Error('Falta cliente');
-  if (!cantidad || cantidad <= 0) throw new Error('Cantidad inválida');
+  if (!cliente)      throw new Error('Falta cliente');
   if (!usuarioCarga) throw new Error('Falta usuario_carga');
 
-  // Resolver parciales — la fecha es opcional (pedidos "a favor" sin fecha pautada)
   let parciales = Array.isArray(body.parciales) ? body.parciales.slice() : [];
-  if (parciales.length === 0) {
-    const fechaStr = String(body.fecha_entrega || '').trim();
-    parciales = [{ fecha_entrega: fechaStr, cantidad: cantidad }];
-  }
-  const parsedParciales = parciales.map(p => {
-    const f = String(p.fecha_entrega || '').trim();
-    const c = Number(p.cantidad);
-    if (!c || c <= 0) throw new Error('Parcial con cantidad inválida');
-    return { fecha: f ? parseIsoDate_(f) : null, cantidad: c };
-  });
-  const sumaP = parsedParciales.reduce((s, p) => s + p.cantidad, 0);
-  if (sumaP !== cantidad) {
-    throw new Error('La suma de parciales (' + sumaP + ') no coincide con el total (' + cantidad + ')');
-  }
+  if (parciales.length === 0) throw new Error('Falta al menos una tanda');
 
-  // Auto-agregar cliente/usuario si no existían (silencioso)
+  const parsed = parciales.map(p => {
+    const prod = {};
+    let suma = 0;
+    PRODUCTOS.forEach(k => { const n = Number(p[k]) || 0; prod[k] = n; suma += n; });
+    if (suma <= 0) throw new Error('Una tanda no tiene productos');
+    const f = String(p.fecha_entrega || '').trim();
+    return { fecha: f ? parseIsoDate_(f) : null, prod: prod };
+  });
+  const totalProductos = PRODUCTOS.reduce((s, k) => s + parsed.reduce((a, p) => a + p.prod[k], 0), 0);
+  if (totalProductos <= 0) throw new Error('El pedido no tiene productos');
+
   try { addCliente({ nombre: cliente }); } catch (_) {}
   try { addUsuario({ nombre: usuarioCarga }); } catch (_) {}
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const shPed  = ss.getSheetByName(SH_PEDIDOS);
   const shParc = ss.getSheetByName(SH_PARCIALES);
-  if (!shPed)  throw new Error('Falta hoja PEDIDOS');
-  if (!shParc) throw new Error('Falta hoja ENTREGAS_PARCIALES — corré initSheets()');
+  if (!shPed || !shParc) throw new Error('Faltan hojas — corré initSheets()');
 
-  const headers = shPed.getRange(1, 1, 1, shPed.getLastColumn()).getValues()[0]
-    .map(h => String(h).trim());
-
-  // Próximo id de pedido
+  const headers = shPed.getRange(1, 1, 1, shPed.getLastColumn()).getValues()[0].map(h => String(h).trim());
   let maxId = 0;
   if (shPed.getLastRow() >= 2) {
     shPed.getRange(2, 1, shPed.getLastRow() - 1, 1).getValues()
-      .forEach(([v]) => {
-        const n = Number(v);
-        if (!isNaN(n) && n > maxId) maxId = n;
-      });
+      .forEach(([v]) => { const n = Number(v); if (!isNaN(n) && n > maxId) maxId = n; });
   }
   const id = maxId + 1;
-
-  // Construir fila del pedido. fecha_entrega_solicitada = fecha de la primera parcial con fecha (compat).
-  const conFecha = parsedParciales.filter(p => p.fecha);
-  const fechaPrimera = conFecha.length
-    ? conFecha.slice().sort((a, b) => a.fecha.getTime() - b.fecha.getTime())[0].fecha
-    : '';
   const valMap = {
-    'id': id,
-    'fecha_carga': new Date(),
-    'usuario_carga': usuarioCarga,
-    'cliente': cliente,
-    'cantidad_bolsas': cantidad,
-    'fecha_entrega_solicitada': fechaPrimera,
-    'observacion_pedido': obs,
-    'estado': 'pendiente',
-    'fecha_entrega': '',
-    'observacion_entrega': '',
-    'link_remito': ''
+    id: id, fecha_carga: new Date(), usuario_carga: usuarioCarga,
+    cliente: cliente, observacion_pedido: obs, estado: 'pendiente'
   };
-  const row = headers.map(h => valMap[h] !== undefined ? valMap[h] : '');
-  shPed.appendRow(row);
+  shPed.appendRow(headers.map(h => valMap[h] !== undefined ? valMap[h] : ''));
 
-  // Crear parciales
-  const parcHeaders = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0]
-    .map(h => String(h).trim());
   let maxIdParc = 0;
   if (shParc.getLastRow() >= 2) {
     shParc.getRange(2, 1, shParc.getLastRow() - 1, 1).getValues()
-      .forEach(([v]) => {
-        const n = Number(v);
-        if (!isNaN(n) && n > maxIdParc) maxIdParc = n;
-      });
+      .forEach(([v]) => { const n = Number(v); if (!isNaN(n) && n > maxIdParc) maxIdParc = n; });
   }
-  parsedParciales.forEach((p, idx) => {
-    const idParc = maxIdParc + 1 + idx;
-    const r = parcHeaders.map(h => {
-      if (h === 'id_parcial')        return idParc;
-      if (h === 'id_pedido')         return id;
-      if (h === 'fecha_planeada')    return p.fecha || '';
-      if (h === 'cantidad_planeada') return p.cantidad;
-      if (h === 'estado')            return 'pendiente';
-      return '';
-    });
-    shParc.appendRow(r);
+  parsed.forEach((p, idx) => {
+    const o = { id_parcial: maxIdParc + 1 + idx, id_pedido: id, fecha_planeada: p.fecha || '', estado: 'pendiente' };
+    PRODUCTOS.forEach(k => { o[k] = p.prod[k]; });
+    shParc.appendRow(PARC_HEADERS.map(h => o[h] !== undefined ? o[h] : ''));
   });
-
-  return { id, parciales: parsedParciales.length };
+  return { id, parciales: parsed.length };
 }
 
 // === CAPACIDAD ===
@@ -564,7 +465,7 @@ function getCapacidad() {
     .filter(pa => String(pa.estado || '').toLowerCase() === 'pendiente')
     .map(pa => ({
       fechaIso: toIsoDate_(pa.fecha_planeada),
-      cantidad: Number(pa.cantidad_planeada) || 0
+      cantidad: materialKg_(pa)
     }))
     .filter(p => p.fechaIso && p.cantidad > 0);
 
@@ -669,8 +570,8 @@ function actualizarFechaEntrega(body) {
 
 /**
  * Reemplazar todas las parciales pendientes de un pedido.
- * body: { id (id_pedido), parciales: [{ fecha_entrega, cantidad }, ...] }
- * La suma debe ser igual al saldo actual del pedido.
+ * body: { id (id_pedido), parciales: [{ fecha_entrega, bolsas_25kg, bigbag_1000kg, emul_1l, emul_5l, emul_20l }, ...] }
+ * La suma por producto de las nuevas parciales debe coincidir con el saldo pendiente por producto.
  */
 function editarParciales(body) {
   const id        = String(body.id || '').trim();
@@ -679,80 +580,74 @@ function editarParciales(body) {
   if (incoming.length === 0) throw new Error('Lista de parciales vacía');
 
   const parsed = incoming.map(p => {
+    const prod = {};
+    let suma = 0;
+    PRODUCTOS.forEach(k => { const n = Number(p[k]) || 0; prod[k] = n; suma += n; });
+    if (suma <= 0) throw new Error('Una tanda no tiene productos');
     const f = String(p.fecha_entrega || '').trim();
-    const c = Number(p.cantidad);
-    if (!c || c <= 0) throw new Error('Parcial con cantidad inválida');
-    return { fecha: f ? parseIsoDate_(f) : null, cantidad: c };
+    return { fecha: f ? parseIsoDate_(f) : null, prod: prod };
   });
-  const sumaNueva = parsed.reduce((s, p) => s + p.cantidad, 0);
+  const sumaNueva = {};
+  PRODUCTOS.forEach(k => { sumaNueva[k] = parsed.reduce((s, p) => s + p.prod[k], 0); });
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const shPed  = ss.getSheetByName(SH_PEDIDOS);
   const shParc = ss.getSheetByName(SH_PARCIALES);
   if (!shPed || !shParc) throw new Error('Faltan hojas');
 
-  // Resolver total del pedido
-  const pedHeaders = shPed.getRange(1, 1, 1, shPed.getLastColumn()).getValues()[0]
-    .map(h => String(h).trim());
-  const colId   = pedHeaders.indexOf('id') + 1;
-  const colCant = pedHeaders.indexOf('cantidad_bolsas') + 1;
-  if (colId < 1 || colCant < 1) throw new Error('PEDIDOS sin columnas');
+  // Verificar que el pedido exista
+  const pedHeaders = shPed.getRange(1, 1, 1, shPed.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const colId = pedHeaders.indexOf('id') + 1;
+  if (colId < 1) throw new Error('PEDIDOS sin columna id');
   const lastP = shPed.getLastRow();
-  let total = 0;
+  let existe = false;
   if (lastP >= 2) {
     const d = shPed.getRange(2, 1, lastP - 1, shPed.getLastColumn()).getValues();
-    for (let i = 0; i < d.length; i++) {
-      if (String(d[i][colId - 1]) === id) { total = Number(d[i][colCant - 1]) || 0; break; }
-    }
+    existe = d.some(r => String(r[colId - 1]) === id);
   }
-  if (!total) throw new Error('Pedido no encontrado: ' + id);
+  if (!existe) throw new Error('Pedido no encontrado: ' + id);
 
-  // Calcular entregado y borrar pendientes actuales
-  const parcHeaders = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0]
-    .map(h => String(h).trim());
+  // Calcular total, entregado (por producto) y borrar pendientes actuales
+  const parcHeaders = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0].map(h => String(h).trim());
   const cI = name => parcHeaders.indexOf(name) + 1;
   const cIdParc = cI('id_parcial');
   const cIdPed  = cI('id_pedido');
-  const cFechaP = cI('fecha_planeada');
-  const cCantP  = cI('cantidad_planeada');
   const cEstP   = cI('estado');
-  const cCantE  = cI('cantidad_entregada');
 
   const lastPa = shParc.getLastRow();
   const rows = lastPa >= 2 ? shParc.getRange(2, 1, lastPa - 1, shParc.getLastColumn()).getValues() : [];
-  let entregado = 0;
+  const total = {}, entregado = {};
+  PRODUCTOS.forEach(k => { total[k] = 0; entregado[k] = 0; });
   let maxIdParc = 0;
   const filasABorrar = [];
   rows.forEach((r, i) => {
     const ipa = Number(r[cIdParc - 1]);
     if (!isNaN(ipa) && ipa > maxIdParc) maxIdParc = ipa;
     if (String(r[cIdPed - 1]) !== id) return;
-    if (String(r[cEstP - 1] || '').toLowerCase() === 'entregada') {
-      entregado += Number(r[cCantE - 1]) || 0;
-    } else {
-      filasABorrar.push(i + 2);
+    const est = String(r[cEstP - 1] || '').toLowerCase();
+    PRODUCTOS.forEach(k => {
+      const n = Number(r[cI(k) - 1]) || 0;
+      total[k] += n;
+      if (est === 'entregada') entregado[k] += n;
+    });
+    if (est !== 'entregada') filasABorrar.push(i + 2);
+  });
+  const saldo = {};
+  PRODUCTOS.forEach(k => {
+    saldo[k] = total[k] - entregado[k];
+    if (sumaNueva[k] !== saldo[k]) {
+      throw new Error('La suma de ' + k + ' (' + sumaNueva[k] + ') no coincide con el saldo (' + saldo[k] + ')');
     }
   });
-  const saldo = total - entregado;
-  if (sumaNueva !== saldo) {
-    throw new Error('La suma de parciales (' + sumaNueva + ') no coincide con el saldo (' + saldo + ')');
-  }
 
   // Borrar pendientes existentes (de abajo hacia arriba)
   filasABorrar.sort((a, b) => b - a).forEach(r => shParc.deleteRow(r));
 
   // Insertar nuevas pendientes
   parsed.forEach((p, idx) => {
-    const idParc = maxIdParc + 1 + idx;
-    const r = parcHeaders.map(h => {
-      if (h === 'id_parcial')        return idParc;
-      if (h === 'id_pedido')         return id;
-      if (h === 'fecha_planeada')    return p.fecha || '';
-      if (h === 'cantidad_planeada') return p.cantidad;
-      if (h === 'estado')            return 'pendiente';
-      return '';
-    });
-    shParc.appendRow(r);
+    const o = { id_parcial: maxIdParc + 1 + idx, id_pedido: id, fecha_planeada: p.fecha || '', estado: 'pendiente' };
+    PRODUCTOS.forEach(k => { o[k] = p.prod[k]; });
+    shParc.appendRow(PARC_HEADERS.map(h => o[h] !== undefined ? o[h] : ''));
   });
 
   SpreadsheetApp.flush();
@@ -794,6 +689,28 @@ function getCapacidadDiaria() {
     }
   }
   return CAPACIDAD_DIARIA_DEFAULT;
+}
+
+function getConfigVal_(ss, clave) {
+  const sh = ss.getSheetByName(SH_CONFIG);
+  if (!sh || sh.getLastRow() < 2) return '';
+  const data = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() === clave) return data[i][1];
+  }
+  return '';
+}
+function setConfigVal_(ss, clave, valor) {
+  const sh = ss.getSheetByName(SH_CONFIG);
+  if (!sh) return;
+  const last = sh.getLastRow();
+  if (last >= 2) {
+    const data = sh.getRange(2, 1, last - 1, 2).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][0] || '').trim() === clave) { sh.getRange(i + 2, 2).setValue(valor); return; }
+    }
+  }
+  sh.appendRow([clave, valor]);
 }
 
 function setCapacidadDiaria(body) {
@@ -856,26 +773,42 @@ function onEdit(e) {
 }
 
 // === HELPERS ===
-function sumProducido_() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  const prodSh = ss.getSheetByName(SH_PRODUCCION);
-  if (!prodSh || prodSh.getLastRow() < 2) return 0;
-  let total = 0;
-  prodSh.getRange(2, 2, prodSh.getLastRow() - 1, 1).getValues()
-    .forEach(([n]) => { total += Number(n) || 0; });
-  return total;
+function materialKg_(obj) {
+  return (Number(obj.bolsas_25kg) || 0) * 25 + (Number(obj.bigbag_1000kg) || 0) * 1000;
 }
 
-function sumVendido_() {
-  // Suma de cantidades entregadas en ENTREGAS_PARCIALES.
+function sumProducido_() {           // kg producidos
+  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SH_PRODUCCION);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  const iKg = h.indexOf('kg_total');
+  let t = 0; sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues()
+    .forEach(r => { t += Number(r[iKg]) || 0; });
+  return t;
+}
+function sumVendidoKg_() {            // kg de material entregado
   const parciales = readSheet(SH_PARCIALES);
-  let total = 0;
-  parciales.forEach(p => {
-    if (String(p.estado || '').toLowerCase() === 'entregada') {
-      total += Number(p.cantidad_entregada) || 0;
-    }
+  return parciales
+    .filter(p => String(p.estado || '').toLowerCase() === 'entregada')
+    .reduce((s, p) => s + materialKg_(p), 0);
+}
+function sumVendidoPorProducto_() {   // { producto: cantidad } entregada
+  const parciales = readSheet(SH_PARCIALES).filter(p => String(p.estado || '').toLowerCase() === 'entregada');
+  const out = {}; PRODUCTOS.forEach(k => { out[k] = 0; });
+  parciales.forEach(p => PRODUCTOS.forEach(k => { out[k] += Number(p[k]) || 0; }));
+  return out;
+}
+function sumProducidoPorEnvase_() {   // { bolsas_25kg, bigbag_1000kg } producidos
+  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SH_PRODUCCION);
+  const out = { bolsas_25kg: 0, bigbag_1000kg: 0 };
+  if (!sh || sh.getLastRow() < 2) return out;
+  const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  const iB = h.indexOf('bolsas_25kg'), iG = h.indexOf('bigbag_1000kg');
+  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(r => {
+    out.bolsas_25kg   += Number(r[iB]) || 0;
+    out.bigbag_1000kg += Number(r[iG]) || 0;
   });
-  return total;
+  return out;
 }
 
 function readSheet(name) {
@@ -966,9 +899,26 @@ function initSheets() {
 
   // --- PRODUCCION ---
   let prodLog = ss.getSheetByName(SH_PRODUCCION);
+  const PROD_HEADERS = ['fecha', 'bolsas_25kg', 'bigbag_1000kg', 'kg_total', 'operario'];
   if (!prodLog) {
     prodLog = ss.insertSheet(SH_PRODUCCION);
-    prodLog.appendRow(['fecha', 'bolsas_producidas', 'operario']);
+    prodLog.appendRow(PROD_HEADERS);
+  } else {
+    const h = prodLog.getRange(1, 1, 1, prodLog.getLastColumn()).getValues()[0].map(x => String(x).trim());
+    if (h.indexOf('kg_total') === -1) {
+      const rows = prodLog.getLastRow() >= 2
+        ? prodLog.getRange(2, 1, prodLog.getLastRow() - 1, prodLog.getLastColumn()).getValues() : [];
+      const iF = h.indexOf('fecha');
+      const iB = h.indexOf('bolsas_producidas') >= 0 ? h.indexOf('bolsas_producidas') : h.indexOf('bolsas_25kg');
+      const iO = h.indexOf('operario');
+      const migrated = rows.map(r => {
+        const bolsas = Number(r[iB]) || 0;
+        return [iF >= 0 ? r[iF] : '', bolsas, 0, bolsas * 25, iO >= 0 ? r[iO] : ''];
+      });
+      prodLog.clear();
+      prodLog.appendRow(PROD_HEADERS);
+      if (migrated.length) prodLog.getRange(2, 1, migrated.length, PROD_HEADERS.length).setValues(migrated);
+    }
   }
 
   // --- CLIENTES ---
@@ -1002,6 +952,7 @@ function initSheets() {
     cfg = ss.insertSheet(SH_CONFIG);
     cfg.appendRow(['clave', 'valor']);
     cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
+    cfg.appendRow(['capacidad_unidad', 'kg']);
   } else {
     // Garantizar header y fila capacidad_diaria
     const h = cfg.getRange(1, 1, 1, 2).getValues()[0].map(x => String(x).trim().toLowerCase());
@@ -1013,25 +964,53 @@ function initSheets() {
       const data = cfg.getRange(2, 1, cfg.getLastRow() - 1, 2).getValues();
       has = data.some(r => String(r[0] || '').trim() === 'capacidad_diaria');
     }
-    if (!has) cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
+    if (!has) {
+      cfg.appendRow(['capacidad_diaria', CAPACIDAD_DIARIA_DEFAULT]);
+      setConfigVal_(ss, 'capacidad_unidad', 'kg');
+    }
+  }
+
+  // Migrar capacidad_diaria de bolsas → kg una sola vez
+  if (getConfigVal_(ss, 'capacidad_unidad') !== 'kg') {
+    const capViejo = Number(getConfigVal_(ss, 'capacidad_diaria')) || CAPACIDAD_DIARIA_DEFAULT;
+    setConfigVal_(ss, 'capacidad_diaria', capViejo * 25);
+    setConfigVal_(ss, 'capacidad_unidad', 'kg');
   }
 
   // --- ENTREGAS_PARCIALES ---
   let parc = ss.getSheetByName(SH_PARCIALES);
-  const PARC_HEADERS = [
-    'id_parcial', 'id_pedido', 'fecha_planeada', 'cantidad_planeada',
-    'estado', 'fecha_entrega', 'cantidad_entregada',
-    'observacion_entrega', 'link_remito', 'usuario_entrega'
-  ];
   if (!parc) {
     parc = ss.insertSheet(SH_PARCIALES);
     parc.appendRow(PARC_HEADERS);
-    // Migrar pedidos existentes: por cada pedido, crear 1 parcial
     migrarPedidosAParciales_(ss);
   } else {
-    // Asegurar headers
-    parc.getRange(1, 1, 1, PARC_HEADERS.length).setValues([PARC_HEADERS]);
-    // Si hay pedidos sin parcial, generar
+    const hdr = parc.getRange(1, 1, 1, parc.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    if (hdr.indexOf('cantidad_planeada') !== -1 && hdr.indexOf('bolsas_25kg') === -1) {
+      // Migrar layout viejo (una sola cantidad) → multiproducto
+      const rows = parc.getLastRow() >= 2
+        ? parc.getRange(2, 1, parc.getLastRow() - 1, parc.getLastColumn()).getValues() : [];
+      const idx = name => hdr.indexOf(name);
+      const migrated = rows.map(r => {
+        const o = {};
+        PARC_HEADERS.forEach(h => { o[h] = ''; });
+        o.id_parcial          = r[idx('id_parcial')];
+        o.id_pedido           = r[idx('id_pedido')];
+        o.fecha_planeada      = r[idx('fecha_planeada')];
+        o.bolsas_25kg         = Number(r[idx('cantidad_planeada')]) || 0;
+        o.bigbag_1000kg = o.emul_1l = o.emul_5l = o.emul_20l = 0;
+        o.estado              = r[idx('estado')];
+        o.fecha_entrega       = idx('fecha_entrega')      >= 0 ? r[idx('fecha_entrega')]      : '';
+        o.observacion_entrega = idx('observacion_entrega')>= 0 ? r[idx('observacion_entrega')]: '';
+        o.link_remito          = idx('link_remito')        >= 0 ? r[idx('link_remito')]        : '';
+        o.usuario_entrega     = idx('usuario_entrega')    >= 0 ? r[idx('usuario_entrega')]    : '';
+        return PARC_HEADERS.map(h => o[h]);
+      });
+      parc.clear();
+      parc.appendRow(PARC_HEADERS);
+      if (migrated.length) parc.getRange(2, 1, migrated.length, PARC_HEADERS.length).setValues(migrated);
+    } else {
+      parc.getRange(1, 1, 1, PARC_HEADERS.length).setValues([PARC_HEADERS]);
+    }
     migrarPedidosAParciales_(ss);
   }
 
@@ -1040,61 +1019,67 @@ function initSheets() {
   if (!stock) {
     stock = ss.insertSheet(SH_STOCK);
     stock.getRange('A1:B5').setValues([
-      ['Concepto',        'Bolsas'],
+      ['Concepto',        'Kg'],
       ['Stock inicial',   0],
       ['Total producido', 0],
       ['Total vendido',   0],
       ['Stock actual',    0]
     ]);
+    setConfigVal_(ss, 'stock_unidad', 'kg');
   } else {
     const a1 = String(stock.getRange('A1').getValue()).toLowerCase().trim();
     if (a1 === 'stock_inicial' || a1 === '') {
       stock.insertRowBefore(1);
     }
-    stock.getRange('A1:B1').setValues([['Concepto', 'Bolsas']]);
     stock.getRange('A2').setValue('Stock inicial');
     stock.getRange('A3').setValue('Total producido');
     stock.getRange('A4').setValue('Total vendido');
     stock.getRange('A5').setValue('Stock actual');
+    // Migrar stock inicial de bolsas → kg una sola vez
+    if (getConfigVal_(ss, 'stock_unidad') !== 'kg') {
+      const ini = Number(stock.getRange('B2').getValue()) || 0;
+      stock.getRange('B2').setValue(ini * 25);
+      setConfigVal_(ss, 'stock_unidad', 'kg');
+    }
+    stock.getRange('A1:B1').setValues([['Concepto', 'Kg']]);
   }
 
   // --- PRODUCTO ---
   let prod = ss.getSheetByName(SH_PRODUCTO);
+  const PROD_ROWS = [
+    ['producto', 'unidad', 'costo', 'precio'],
+    ['bolsas_25kg',   'bolsa (25kg)',     0, 0],
+    ['bigbag_1000kg', 'big bag (1000kg)', 0, 0],
+    ['emul_1l',       'botella 1L',       0, 0],
+    ['emul_5l',       'botella 5L',       0, 0],
+    ['emul_20l',      'botella 20L',      0, 0]
+  ];
   if (!prod) {
     prod = ss.insertSheet(SH_PRODUCTO);
-    prod.getRange('A1:B7').setValues([
-      ['Concepto',         'Valor por bolsa ($)'],
-      ['Materia prima',    0],
-      ['Mano de obra',     0],
-      ['Envase',           0],
-      ['Otros',            0],
-      ['Costo total',      0],
-      ['Precio de venta',  0]
-    ]);
-  } else {
-    prod.getRange('A1:B1').setValues([['Concepto', 'Valor por bolsa ($)']]);
-    const pretty = ['Materia prima', 'Mano de obra', 'Envase', 'Otros', 'Costo total', 'Precio de venta'];
-    pretty.forEach((label, i) => prod.getRange(2 + i, 1).setValue(label));
+    prod.getRange(1, 1, PROD_ROWS.length, 4).setValues(PROD_ROWS);
+  } else if (String(prod.getRange('A1').getValue()).trim().toLowerCase() !== 'producto') {
+    // Layout viejo (costos de bolsa): preservar costo total (B6) y precio (B7) para bolsa
+    const costoBolsa  = Number(prod.getRange('B6').getValue()) || 0;
+    const precioBolsa = Number(prod.getRange('B7').getValue()) || 0;
+    prod.clear();
+    const rows = PROD_ROWS.map(r => r.slice());
+    rows[1][2] = costoBolsa; rows[1][3] = precioBolsa;  // fila bolsas_25kg
+    prod.getRange(1, 1, rows.length, 4).setValues(rows);
   }
 
   // --- GANANCIAS ---
   let gan = ss.getSheetByName(SH_GANANCIAS);
-  if (!gan) {
-    gan = ss.insertSheet(SH_GANANCIAS);
-    gan.getRange('A1:B7').setValues([
-      ['Concepto',           'Valor'],
-      ['Bolsas producidas',  0],
-      ['Bolsas vendidas',    0],
-      ['Costo total ($)',    0],
-      ['Ingresos ($)',       0],
-      ['Ganancia bruta ($)', 0],
-      ['Margen (%)',         0]
-    ]);
-  } else {
-    gan.getRange('A1:B1').setValues([['Concepto', 'Valor']]);
-    const pretty = ['Bolsas producidas','Bolsas vendidas','Costo total ($)','Ingresos ($)','Ganancia bruta ($)','Margen (%)'];
-    pretty.forEach((label, i) => gan.getRange(2 + i, 1).setValue(label));
-  }
+  const GAN_ROWS = [
+    ['Concepto', 'Valor'],
+    ['Material producido (kg)', 0],
+    ['Material vendido (kg)',   0],
+    ['Ingresos ($)',            0],
+    ['Costo total ($)',         0],
+    ['Ganancia bruta ($)',      0],
+    ['Margen (%)',              0]
+  ];
+  if (!gan) { gan = ss.insertSheet(SH_GANANCIAS); }
+  gan.getRange(1, 1, GAN_ROWS.length, 2).setValues(GAN_ROWS);
 
   reorderSheets_(ss, [SH_STOCK, SH_GANANCIAS, SH_PEDIDOS, SH_PARCIALES, SH_PRODUCCION, SH_USUARIOS, SH_CLIENTES, SH_PRODUCTO, SH_CONFIG]);
 
@@ -1163,10 +1148,9 @@ function migrarPedidosAParciales_(ss) {
         if (h === 'id_parcial')         return newId;
         if (h === 'id_pedido')          return idPed;
         if (h === 'fecha_planeada')     return fechaP;
-        if (h === 'cantidad_planeada')  return cantidad;
+        if (h === 'bolsas_25kg')        return cantidad;
         if (h === 'estado')             return 'entregada';
         if (h === 'fecha_entrega')      return fechaE;
-        if (h === 'cantidad_entregada') return cantidad;
         if (h === 'observacion_entrega')return obsE;
         if (h === 'link_remito')        return link;
         return '';
@@ -1177,7 +1161,7 @@ function migrarPedidosAParciales_(ss) {
         if (h === 'id_parcial')        return newId;
         if (h === 'id_pedido')         return idPed;
         if (h === 'fecha_planeada')    return fechaP;
-        if (h === 'cantidad_planeada') return cantidad;
+        if (h === 'bolsas_25kg')       return cantidad;
         if (h === 'estado')            return 'pendiente';
         return '';
       });
@@ -1284,21 +1268,23 @@ function applyFormatting_() {
   }
 
   // ENTREGAS_PARCIALES
+  // PARC_HEADERS: 1 id_parcial, 2 id_pedido, 3 fecha_planeada, 4-8 productos (bolsas_25kg..emul_20l),
+  // 9 estado, 10 fecha_entrega, 11 observacion_entrega, 12 link_remito, 13 usuario_entrega
   const parc = ss.getSheetByName(SH_PARCIALES);
   if (parc) {
-    const widths = [80, 80, 130, 130, 110, 130, 130, 200, 200, 150];
+    const widths = [80, 80, 130, 110, 120, 90, 90, 90, 110, 130, 200, 200, 150];
     formatList_(parc, {
-      cols: 10, widths,
+      cols: PARC_HEADERS.length, widths,
       headerHeight: 36, rowHeight: 26,
-      numberCols: [4, 7],
-      dateCols: [3, 6]
+      numberCols: [4, 5, 6, 7, 8],
+      dateCols: [3, 10]
     });
     parc.getRange(2, 3, parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy');
-    parc.getRange(2, 6, parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy HH:mm');
+    parc.getRange(2, 10, parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy HH:mm');
     parc.getRange(2, 1, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
     parc.getRange(2, 2, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
-    parc.getRange(2, 5, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
-    const estR = parc.getRange(2, 5, parc.getMaxRows() - 1, 1);
+    parc.getRange(2, 9, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
+    const estR = parc.getRange(2, 9, parc.getMaxRows() - 1, 1);
     const rulePend = SpreadsheetApp.newConditionalFormatRule()
       .whenTextEqualTo('pendiente')
       .setBackground(COLOR_PEND_BG).setFontColor(COLOR_PEND_TXT).setBold(true)
@@ -1314,12 +1300,12 @@ function applyFormatting_() {
   const prodLog = ss.getSheetByName(SH_PRODUCCION);
   if (prodLog) {
     formatList_(prodLog, {
-      cols: 3,
-      widths: [180, 180, 220],
+      cols: 5,
+      widths: [180, 130, 130, 130, 220],
       headerHeight: 36, rowHeight: 28,
-      numberCols: [2], dateCols: [1]
+      numberCols: [2, 3, 4], dateCols: [1]
     });
-    prodLog.getRange(2, 2, prodLog.getMaxRows() - 1, 1).setHorizontalAlignment('right');
+    prodLog.getRange(2, 2, prodLog.getMaxRows() - 1, 3).setHorizontalAlignment('right');
   }
 
   // CLIENTES
@@ -1359,23 +1345,21 @@ function applyFormatting_() {
   if (stock) {
     formatDashboard_(stock, {
       rows: 5,
-      valueFormat: '#,##0" bolsas"',
+      valueFormat: '#,##0" kg"',
       highlightRow: 5,
       colWidths: [260, 220]
     });
   }
 
-  // PRODUCTO
+  // PRODUCTO — ahora es tabla (1 fila por producto), no dashboard
   const prod = ss.getSheetByName(SH_PRODUCTO);
   if (prod) {
-    formatDashboard_(prod, {
-      rows: 7,
-      valueFormat: '"$" #,##0',
-      highlightRow: 6,
-      colWidths: [260, 220]
+    formatList_(prod, {
+      cols: 4,
+      widths: [160, 200, 130, 130],
+      headerHeight: 36, rowHeight: 30,
+      numberCols: [3, 4]
     });
-    prod.getRange('A2:B5').setBackground('#fffbeb');
-    prod.getRange('A7:B7').setBackground('#fffbeb');
   }
 
   // GANANCIAS
@@ -1386,7 +1370,7 @@ function applyFormatting_() {
       valueFormat: '"$" #,##0',
       highlightRow: 6,
       colWidths: [260, 240],
-      customFormats: { 2: '#,##0" bolsas"', 3: '#,##0" bolsas"', 7: '0.0"%"' }
+      customFormats: { 2: '#,##0" kg"', 3: '#,##0" kg"', 7: '0.0"%"' }
     });
   }
 
