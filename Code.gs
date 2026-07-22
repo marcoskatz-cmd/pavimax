@@ -36,6 +36,19 @@ const PARC_HEADERS = [
   'bolsas_25kg', 'bigbag_1000kg', 'emul_1l', 'emul_5l', 'emul_20l',
   'estado', 'fecha_entrega', 'observacion_entrega', 'link_remito', 'usuario_entrega'
 ];
+// Encabezados alternativos que puede tener la hoja (ediciones manuales, migraciones viejas)
+// mapeados a la clave canónica que usa el código. Ver ENTREGAS_PARCIALES real: usaba
+// "emulsión_1l" etc. en vez de "emul_1l", lo que hacía que las cantidades de emulsión
+// siempre se leyeran como 0 (el nombre de columna no matcheaba).
+const HEADER_SYNONYMS = {
+  'emulsión_1l': 'emul_1l', 'emulsion_1l': 'emul_1l',
+  'emulsión_5l': 'emul_5l', 'emulsion_5l': 'emul_5l',
+  'emulsión_20l': 'emul_20l', 'emulsion_20l': 'emul_20l'
+};
+function normalizeHeader_(h) {
+  const t = String(h).trim();
+  return HEADER_SYNONYMS[t] || t;
+}
 
 // === ESTILO ===
 const COLOR_BRAND       = '#157f3d';
@@ -625,7 +638,7 @@ function editarParciales(body) {
   if (!existe) throw new Error('Pedido no encontrado: ' + id);
 
   // Calcular total, entregado (por producto) y borrar pendientes actuales
-  const parcHeaders = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const parcHeaders = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0].map(normalizeHeader_);
   const cI = name => parcHeaders.indexOf(name) + 1;
   const cIdParc = cI('id_parcial');
   const cIdPed  = cI('id_pedido');
@@ -834,7 +847,7 @@ function readSheet(name) {
   if (!sh) throw new Error('Falta hoja ' + name);
   const values = sh.getDataRange().getValues();
   if (values.length < 2) return [];
-  const headers = values[0].map(h => String(h).trim());
+  const headers = values[0].map(normalizeHeader_);
   return values.slice(1)
     .filter(row => row.some(c => c !== '' && c !== null))
     .map(row => {
