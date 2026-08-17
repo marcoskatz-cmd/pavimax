@@ -482,12 +482,13 @@ function cargarPedido(body) {
 }
 
 // === CAPACIDAD ===
-// La capacidad la limita el EMBOLSADO: cuántas BOLSAS de 25kg se pueden embolsar
-// por día. Los big bag NO pasan por el embolsado (se llenan directo) y la emulsión
+// Disponible = stock YA EMBOLSADO (bolsas 25kg en stock, listas para entregar ya)
+// + lo que todavía se puede EMBOLSAR hasta el día i (hoy cuenta como día 1).
+// Los big bag NO pasan por el embolsado (se llenan directo) y la emulsión
 // tampoco, así que no consumen capacidad — el big bag comprometido se informa aparte.
-// El stock de materia prima NO entra en este cálculo (la materia prima no es el límite).
 function getCapacidad() {
   const capDiaria = getCapacidadDiaria();  // bolsas/día
+  const stockActual = getStock().bolsas_25kg.actual;  // bolsas ya embolsadas, listas para entregar
 
   const parciales = readSheet(SH_PARCIALES)
     .filter(pa => String(pa.estado || '').toLowerCase() === 'pendiente')
@@ -506,8 +507,8 @@ function getCapacidad() {
     const d = new Date(hoy);
     d.setDate(hoy.getDate() + i);
     const iso = toIsoDate_(d);
-    // Bolsas que se pueden embolsar acumuladas hasta el día i (hoy cuenta como día 1).
-    const capacidadAcum = capDiaria * (i + 1);
+    // Stock ya embolsado + lo que se puede embolsar acumulado hasta el día i (hoy cuenta como día 1).
+    const capacidadAcum = stockActual + capDiaria * (i + 1);
     const alcanzadas = parciales.filter(p => p.fechaIso <= iso);
     const committedAcum = alcanzadas.reduce((s, p) => s + p.bolsas, 0);
     const bigbagAcum    = alcanzadas.reduce((s, p) => s + p.bigbag, 0);
@@ -522,6 +523,7 @@ function getCapacidad() {
   }
   return {
     capacidad_diaria: capDiaria,           // bolsas/día
+    stock_actual:     stockActual,         // bolsas ya embolsadas en stock
     horizonte:        horizonte
   };
 }
