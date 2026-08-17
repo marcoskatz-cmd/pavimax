@@ -334,7 +334,7 @@
     <div class="stock-card">
       <div class="lbl">Comprometidas</div>
       <div class="num" id="pendBolsas">—</div>
-      <div class="sub">kg material</div>
+      <div class="sub">bolsas</div>
     </div>
   </div>
 
@@ -568,8 +568,8 @@ function renderStock() {
   document.getElementById('stockSub').textContent =
     'bolsas 25kg · ' + fmtNum(stBigbag.actual) + ' big bag';
   document.getElementById('pendCount').textContent = state.pendientes.length;
-  const totalKg = state.pendientes.reduce((s, p) => s + materialKg(pendienteTotals(p)), 0);
-  document.getElementById('pendBolsas').textContent = fmtNum(totalKg);
+  const totalBolsas = state.pendientes.reduce((s, p) => s + bolsasDe(pendienteTotals(p)), 0);
+  document.getElementById('pendBolsas').textContent = fmtNum(totalBolsas);
 }
 
 function renderCapacidad() {
