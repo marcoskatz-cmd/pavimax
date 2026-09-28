@@ -611,13 +611,14 @@ function notifyNewOrder(p) {
     badge: 'icon-192.png',
     tag: 'pedido-' + p.id
   };
-  try {
-    if (state.swReg && state.swReg.showNotification) {
-      state.swReg.showNotification(title, opts);
-    } else {
-      new Notification(title, opts);
-    }
-  } catch (_) {}
+  // En Android Chrome `new Notification()` tira "Illegal constructor": hay que pasar
+  // siempre por el service worker, esperando a que esté listo si todavía se está registrando.
+  if ('serviceWorker' in navigator) {
+    const reg = state.swReg ? Promise.resolve(state.swReg) : navigator.serviceWorker.ready;
+    reg.then(r => r.showNotification(title, opts)).catch(() => {});
+  } else {
+    try { new Notification(title, opts); } catch (_) {}
+  }
 }
 
 /* ===== FETCH ===== */
