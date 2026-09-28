@@ -548,6 +548,7 @@ function onUsuarioEntregaChange(e) {
 
 window.addEventListener('hashchange', syncFromHash);
 syncFromHash();
+renderFromCache();
 fetchAll();
 setInterval(fetchAll, CONFIG.POLL_MS);
 
@@ -620,6 +621,21 @@ function notifyNewOrder(p) {
 }
 
 /* ===== FETCH ===== */
+// Últimos datos recibidos: se muestran al instante al abrir la app mientras llega la respuesta nueva.
+function renderFromCache() {
+  try {
+    const d = JSON.parse(localStorage.getItem('pavimax_op_cache') || 'null');
+    if (!d) return;
+    state.pendientes = d.pendientes || [];
+    state.entregados = d.entregados || [];
+    state.stock      = d.stock || {};
+    state.produccion = d.produccion || [];
+    state.usuarios   = d.usuarios || [];
+    render();
+    setStatus('actualizando…');
+  } catch (_) {}
+}
+
 async function fetchAll() {
   if (!CONFIG.API_URL || CONFIG.API_URL.startsWith('PEGAR')) {
     setStatus('configurar CONFIG.API_URL en el HTML', true);
@@ -629,6 +645,7 @@ async function fetchAll() {
     const r = await fetch(CONFIG.API_URL + '?action=all&_t=' + Date.now(), { method: 'GET', cache: 'no-store' });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
+    try { localStorage.setItem('pavimax_op_cache', JSON.stringify(j.data)); } catch (_) {}
     const prev = state.knownIds;
     const ped  = j.data.pendientes || [];
     const ids  = new Set(ped.map(p => String(p.id)));

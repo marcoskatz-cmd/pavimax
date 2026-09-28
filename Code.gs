@@ -66,10 +66,32 @@ const COLOR_ENTR_TXT    = '#065f46';
 const COLOR_PARC_BG     = '#dbeafe';
 const COLOR_PARC_TXT    = '#1e40af';
 
+// === MEMO POR REQUEST ===
+// Durante un GET se leen las mismas hojas muchas veces (getAll): se abre la planilla una
+// sola vez y cada hoja se lee una vez. Las escrituras de STOCK/GANANCIAS se juntan y se
+// hacen al final, para no forzar un flush/recálculo entre lecturas.
+let _ss = null;
+let _memoOn = false;
+let _sheetMemo = {};
+let _pendingWrites = [];
+function ss_() { return _ss || (_ss = SpreadsheetApp.openById(SHEET_ID)); }
+function writeOrDefer_(range, values) {
+  if (_memoOn) _pendingWrites.push([range, values]);
+  else range.setValues(values);
+}
+function flushWrites_() {
+  const w = _pendingWrites; _pendingWrites = [];
+  w.forEach(([r, v]) => {
+    // Solo escribir si cambió algo: una escritura dispara recálculo y es lo más lento
+    if (JSON.stringify(r.getValues()) !== JSON.stringify(v)) r.setValues(v);
+  });
+}
+
 // === HTTP ===
 function doGet(e) {
   try {
     const action = (e && e.parameter && e.parameter.action) || 'all';
+    _memoOn = true; _sheetMemo = {}; _pendingWrites = [];
     let data;
     if (action === 'pendientes')           data = { pendientes: getPendientes() };
     else if (action === 'entregados')      data = { entregados: getEntregados() };
@@ -81,8 +103,11 @@ function doGet(e) {
     else if (action === 'usuarios')        data = { usuarios: getUsuarios() };
     else if (action === 'capacidadDiaria') data = { capacidad_diaria: getCapacidadDiaria() };
     else                                   data = getAll();
+    _memoOn = false;
+    try { flushWrites_(); } catch (e2) { /* la planilla es solo espejo; no romper la respuesta */ }
     return jsonResponse({ ok: true, data });
   } catch (err) {
+    _memoOn = false; _pendingWrites = [];
     return jsonResponse({ ok: false, error: String(err) });
   }
 }
@@ -130,7 +155,7 @@ function getAll() {
 
 // Últimas 5 cargas de producción, más recientes primero
 function getProduccion() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const sh = ss.getSheetByName(SH_PRODUCCION);
   if (!sh || sh.getLastRow() < 2) return [];
   const values = sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(sh.getLastColumn(), 4)).getValues();
@@ -251,7 +276,7 @@ function getEntregados() {
 //   row 2 = bolsas_25kg, row 3 = bigbag_1000kg
 // Inicial (col B) lo edita Marcos; Producido/Vendido/Actual (C/D/E) se reescriben acá.
 function getStock() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const stockSh = ss.getSheetByName(SH_STOCK);
   if (!stockSh) throw new Error('Falta hoja STOCK');
 
@@ -274,7 +299,7 @@ function getStock() {
     actual:    iniBigbag + producido.bigbag_1000kg - (vendido.bigbag_1000kg || 0)
   };
 
-  stockSh.getRange('C2:E3').setValues([
+  writeOrDefer_(stockSh.getRange('C2:E3'), [
     [bolsas.producido, bolsas.vendido, bolsas.actual],
     [bigbag.producido, bigbag.vendido, bigbag.actual]
   ]);
@@ -284,7 +309,7 @@ function getStock() {
 
 // PRODUCTO layout: row 1 header (producto, unidad, costo, precio), rows 2-6 = 1 fila por producto
 function leerPrecios_() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const prodSh = ss.getSheetByName(SH_PRODUCTO);
   const out = {};
   if (!prodSh || prodSh.getLastRow() < 2) return out;
@@ -298,7 +323,7 @@ function leerPrecios_() {
 
 // GANANCIAS layout: row 1 header, rows 2-7 datos
 function getGanancias() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const ganSh = ss.getSheetByName(SH_GANANCIAS);
   if (!ganSh) {
     return { error: 'Falta hoja GANANCIAS — corré initSheets() una vez' };
@@ -321,7 +346,7 @@ function getGanancias() {
   const producido = sumProducido_();
   const vendidoKg = sumVendidoKg_();
 
-  ganSh.getRange('B2:B7').setValues([
+  writeOrDefer_(ganSh.getRange('B2:B7'), [
     [producido], [vendidoKg], [ingresos], [costo], [ganancia], [margen]
   ]);
 
@@ -351,7 +376,7 @@ function entregarPedido(body) {
   if (!idParc)      throw new Error('Falta id_parcial');
   if (!usuarioEntr) throw new Error('Falta usuario_entrega');
 
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const shPed  = ss.getSheetByName(SH_PEDIDOS);
   const shParc = ss.getSheetByName(SH_PARCIALES);
   const pH = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0].map(h => String(h).trim());
@@ -412,7 +437,7 @@ function registrarProduccion(body) {
   const operario = String(body.operario || '').trim();
   if (bolsas <= 0 && bigbag <= 0) throw new Error('Cargá al menos bolsas o big bag');
   const kg = bolsas * 25 + bigbag * 1000;
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const sh = ss.getSheetByName(SH_PRODUCCION);
   if (!sh) throw new Error('Falta hoja PRODUCCION');
   sh.appendRow([new Date(), bolsas, bigbag, kg, operario]);
@@ -450,7 +475,7 @@ function cargarPedido(body) {
   try { addCliente({ nombre: cliente }); } catch (_) {}
   try { addUsuario({ nombre: usuarioCarga }); } catch (_) {}
 
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const shPed  = ss.getSheetByName(SH_PEDIDOS);
   const shParc = ss.getSheetByName(SH_PARCIALES);
   if (!shPed || !shParc) throw new Error('Faltan hojas — corré initSheets()');
@@ -531,7 +556,7 @@ function getCapacidad() {
 function addCliente(body) {
   const nombre = String(body.nombre || '').trim();
   if (!nombre) throw new Error('Falta nombre');
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const sh = ss.getSheetByName(SH_CLIENTES);
   if (!sh) throw new Error('Falta hoja CLIENTES');
   if (sh.getLastRow() >= 2) {
@@ -547,7 +572,7 @@ function addCliente(body) {
 function addUsuario(body) {
   const nombre = String(body.nombre || '').trim();
   if (!nombre) throw new Error('Falta nombre');
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const sh = ss.getSheetByName(SH_USUARIOS);
   if (!sh) throw new Error('Falta hoja USUARIOS — corré initSheets()');
   if (sh.getLastRow() >= 2) {
@@ -573,7 +598,7 @@ function actualizarFechaEntrega(body) {
   if (!fechaStr) throw new Error('Falta fecha');
   const fecha = parseIsoDate_(fechaStr);
 
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const shParc = ss.getSheetByName(SH_PARCIALES);
   if (!shParc) throw new Error('Falta hoja ENTREGAS_PARCIALES');
   const headers = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0]
@@ -622,7 +647,7 @@ function editarParciales(body) {
   const sumaNueva = {};
   PRODUCTOS.forEach(k => { sumaNueva[k] = parsed.reduce((s, p) => s + p.prod[k], 0); });
 
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const shPed  = ss.getSheetByName(SH_PEDIDOS);
   const shParc = ss.getSheetByName(SH_PARCIALES);
   if (!shPed || !shParc) throw new Error('Faltan hojas');
@@ -687,7 +712,7 @@ function editarParciales(body) {
 }
 
 function getClientes() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const sh = ss.getSheetByName(SH_CLIENTES);
   if (!sh || sh.getLastRow() < 2) return [];
   return sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues()
@@ -696,7 +721,7 @@ function getClientes() {
 }
 
 function getUsuarios() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const sh = ss.getSheetByName(SH_USUARIOS);
   if (!sh || sh.getLastRow() < 2) return [];
   const cols = sh.getLastColumn();
@@ -710,7 +735,7 @@ function getUsuarios() {
 }
 
 function getCapacidadDiaria() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const sh = ss.getSheetByName(SH_CONFIG);
   if (!sh || sh.getLastRow() < 2) return CAPACIDAD_DIARIA_DEFAULT;
   const data = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
@@ -748,7 +773,7 @@ function setConfigVal_(ss, clave, valor) {
 function setCapacidadDiaria(body) {
   const n = Number(body.capacidad_diaria);
   if (!n || n <= 0) throw new Error('Capacidad inválida');
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const sh = ss.getSheetByName(SH_CONFIG);
   if (!sh) throw new Error('Falta hoja CONFIG — corré initSheets()');
   // Buscar fila existente
@@ -810,12 +835,10 @@ function materialKg_(obj) {
 }
 
 function sumProducido_() {           // kg producidos
-  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SH_PRODUCCION);
-  if (!sh || sh.getLastRow() < 2) return 0;
-  const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
-  const iKg = h.indexOf('kg_total');
-  let t = 0; sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues()
-    .forEach(r => { t += Number(r[iKg]) || 0; });
+  const v = sheetValues_(SH_PRODUCCION);
+  if (!v || v.length < 2) return 0;
+  const iKg = v[0].map(x => String(x).trim()).indexOf('kg_total');
+  let t = 0; v.slice(1).forEach(r => { t += Number(r[iKg]) || 0; });
   return t;
 }
 function sumVendidoKg_() {            // kg de material entregado
@@ -831,23 +854,30 @@ function sumVendidoPorProducto_() {   // { producto: cantidad } entregada
   return out;
 }
 function sumProducidoPorEnvase_() {   // { bolsas_25kg, bigbag_1000kg } producidos
-  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SH_PRODUCCION);
   const out = { bolsas_25kg: 0, bigbag_1000kg: 0 };
-  if (!sh || sh.getLastRow() < 2) return out;
-  const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  const v = sheetValues_(SH_PRODUCCION);
+  if (!v || v.length < 2) return out;
+  const h = v[0].map(x => String(x).trim());
   const iB = h.indexOf('bolsas_25kg'), iG = h.indexOf('bigbag_1000kg');
-  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(r => {
+  v.slice(1).forEach(r => {
     out.bolsas_25kg   += Number(r[iB]) || 0;
     out.bigbag_1000kg += Number(r[iG]) || 0;
   });
   return out;
 }
 
+// Valores crudos de una hoja entera (memoizado durante un GET)
+function sheetValues_(name) {
+  if (_memoOn && _sheetMemo[name]) return _sheetMemo[name];
+  const sh = ss_().getSheetByName(name);
+  const v = sh ? sh.getDataRange().getValues() : null;
+  if (_memoOn) _sheetMemo[name] = v;
+  return v;
+}
+
 function readSheet(name) {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  const sh = ss.getSheetByName(name);
-  if (!sh) throw new Error('Falta hoja ' + name);
-  const values = sh.getDataRange().getValues();
+  const values = sheetValues_(name);
+  if (!values) throw new Error('Falta hoja ' + name);
   if (values.length < 2) return [];
   const headers = values[0].map(normalizeHeader_);
   return values.slice(1)
@@ -895,7 +925,7 @@ function parseIsoDate_(s) {
 // viejos al nuevo (USUARIOS, ENTREGAS_PARCIALES, CONFIG, etc.).
 // =============================================================
 function initSheets() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
 
   // --- PEDIDOS ---
   let ped = ss.getSheetByName(SH_PEDIDOS);
@@ -1194,7 +1224,7 @@ function reorderSheets_(ss, order) {
 }
 
 function applyClientesValidation_() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const pedidos  = ss.getSheetByName(SH_PEDIDOS);
   const clientes = ss.getSheetByName(SH_CLIENTES);
   if (!pedidos || !clientes) return;
@@ -1211,7 +1241,7 @@ function applyClientesValidation_() {
 }
 
 function applyUsuariosValidation_() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   const pedidos = ss.getSheetByName(SH_PEDIDOS);
   const usuarios = ss.getSheetByName(SH_USUARIOS);
   if (!pedidos || !usuarios) return;
@@ -1229,7 +1259,7 @@ function applyUsuariosValidation_() {
 
 // === FORMATO VISUAL ===
 function applyFormatting_() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
 
   // PEDIDOS
   const ped = ss.getSheetByName(SH_PEDIDOS);

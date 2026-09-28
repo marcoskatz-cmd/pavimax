@@ -510,15 +510,37 @@ if (ultimoUsuario) state._restoreUsuario = ultimoUsuario;
 state.parcialesForm = [emptyTanda(todayIso())];
 renderParcialesForm();
 
+renderFromCache();
 fetchAll();
 setInterval(fetchAll, CONFIG.POLL_MS);
 
 /* ===== FETCH ===== */
+// Últimos datos recibidos: se muestran al instante al abrir la app mientras llega la respuesta nueva.
+function renderFromCache() {
+  try {
+    const d = JSON.parse(localStorage.getItem('pavimax_carga_cache') || 'null');
+    if (!d) return;
+    applyData(d);
+    setStatus('actualizando…');
+  } catch (_) {}
+}
+
 async function fetchAll() {
   try {
-    const r = await fetch(CONFIG.API_URL + '?action=all', { method: 'GET' });
+    const r = await fetch(CONFIG.API_URL + '?action=all&_t=' + Date.now(), { method: 'GET', cache: 'no-store' });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
+    try { localStorage.setItem('pavimax_carga_cache', JSON.stringify(j.data)); } catch (_) {}
+    applyData(j.data);
+    setStatus('última act. ' + new Date().toLocaleTimeString());
+  } catch (e) {
+    setStatus('error: ' + e.message, true);
+  }
+}
+
+function applyData(d) {
+  const j = { data: d };
+  {
     state.capacidad        = j.data.capacidad        || null;
     state.clientes         = j.data.clientes         || [];
     state.usuarios         = j.data.usuarios         || [];
@@ -531,9 +553,6 @@ async function fetchAll() {
     renderClientes();
     renderPendientes();
     updateFeedback();
-    setStatus('última act. ' + new Date().toLocaleTimeString());
-  } catch (e) {
-    setStatus('error: ' + e.message, true);
   }
 }
 
