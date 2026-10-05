@@ -263,7 +263,7 @@ function getEntregados() {
       link_remito: ultima.link_remito || '',
       usuario_entrega: ultima.usuario_entrega || '',
       entregas: entregasOrd,
-      pagado: esPagado_(p.pagado),
+      estado_pago: estadoPago_(p.pagado),
       fecha_pago: fmtDate_(p.fecha_pago),
       _fecha_iso: ultima.fecha_iso || ''
     });
@@ -274,16 +274,22 @@ function getEntregados() {
     .map(r => { delete r._fecha_iso; return r; });
 }
 
-function esPagado_(v) {
-  return v === true || /^(si|sí|true|1|x)$/i.test(String(v || '').trim());
+const ESTADOS_PAGO = ['sin pagar', 'muestra gratis', 'uso interno INGECO', 'pagada'];
+function estadoPago_(v) {
+  const t = String(v || '').trim();
+  const hit = ESTADOS_PAGO.find(e => e.toLowerCase() === t.toLowerCase());
+  if (hit) return hit;
+  if (/^(si|sí|true|1|x|pagado)$/i.test(t)) return 'pagada';
+  return 'sin pagar';
 }
 
-// Marca/desmarca si el cliente pagó la factura del pedido. Crea las columnas
+// Fija el estado de pago de la factura del pedido. Crea las columnas
 // pagado / fecha_pago en PEDIDOS si todavía no existen.
 function marcarPago(body) {
   const id = String(body.id || '');
   if (!id) throw new Error('Falta id de pedido');
-  const pagado = !!body.pagado;
+  const estado = ESTADOS_PAGO.find(e => e === body.estado_pago);
+  if (!estado) throw new Error('Estado de pago inválido: ' + body.estado_pago);
   const sh = ss_().getSheetByName(SH_PEDIDOS);
   let headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
   ['pagado', 'fecha_pago'].forEach(h => {
@@ -297,9 +303,9 @@ function marcarPago(body) {
   const idx = ids.findIndex(r => String(r[0]) === id);
   if (idx < 0) throw new Error('Pedido no encontrado: ' + id);
   const row = idx + 2;
-  sh.getRange(row, headers.indexOf('pagado') + 1).setValue(pagado ? 'SI' : 'NO');
-  sh.getRange(row, headers.indexOf('fecha_pago') + 1).setValue(pagado ? new Date() : '');
-  return { id, pagado };
+  sh.getRange(row, headers.indexOf('pagado') + 1).setValue(estado);
+  sh.getRange(row, headers.indexOf('fecha_pago') + 1).setValue(estado === 'sin pagar' ? '' : new Date());
+  return { id, estado_pago: estado };
 }
 
 // STOCK layout (tabla por producto, en UNIDADES):

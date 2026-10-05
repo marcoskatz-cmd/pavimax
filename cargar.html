@@ -313,10 +313,12 @@
   .hist-row .cli { font-weight:700; }
   .hist-row .obs { font-size:12px; color:var(--muted); margin-top:2px; }
   .hist-row .obs a { color:var(--info); }
-  .pago-btn { border:2px solid; border-radius:10px; padding:8px 10px; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; min-width:96px; }
-  .pago-btn.no { background:#fff7ed; color:#9a3412; border-color:#fb923c; }
-  .pago-btn.si { background:#ccfbf1; color:#115e59; border-color:#14b8a6; }
-  .pago-btn:disabled { opacity:.6; }
+  .pago-sel { border:2px solid; border-radius:10px; padding:8px 6px; font-size:13px; font-weight:700; cursor:pointer; max-width:150px; }
+  .pago-sel.e0 { background:#fff7ed; color:#9a3412; border-color:#fb923c; }
+  .pago-sel.e1 { background:#ede9fe; color:#5b21b6; border-color:#a78bfa; }
+  .pago-sel.e2 { background:#e0f2fe; color:#075985; border-color:#38bdf8; }
+  .pago-sel.e3 { background:#ccfbf1; color:#115e59; border-color:#14b8a6; }
+  .pago-sel:disabled { opacity:.6; }
 </style>
 </head>
 <body>
@@ -397,11 +399,13 @@
 
   <div class="section-title">Pedidos pendientes — tocá para editar las parciales</div>
   <div id="pendList"></div>
-  <div class="section-title">Historial de entregados — tocá el botón para marcar si pagó la factura</div>
+  <div class="section-title">Historial de entregados — elegí el estado de la factura</div>
   <div class="hist-filtros" id="histFiltros">
     <button data-f="todos" class="on">Todos</button>
-    <button data-f="nopago">Sin pagar</button>
-    <button data-f="pago">Pagados</button>
+    <button data-f="sin pagar">Sin pagar</button>
+    <button data-f="muestra gratis">Muestra gratis</button>
+    <button data-f="uso interno INGECO">Uso interno INGECO</button>
+    <button data-f="pagada">Pagada</button>
     <input type="search" id="histBuscar" placeholder="Buscar cliente…">
   </div>
   <div id="histList"></div>
@@ -791,7 +795,7 @@ function renderHistorial() {
   const list = document.getElementById('histList');
   const q = document.getElementById('histBuscar').value.trim().toLowerCase();
   const rows = state.entregados.filter(p =>
-    (state.histFiltro === 'todos' || (state.histFiltro === 'pago') === !!p.pagado) &&
+    (state.histFiltro === 'todos' || state.histFiltro === (p.estado_pago || 'sin pagar')) &&
     (!q || String(p.cliente || '').toLowerCase().includes(q)));
   list.innerHTML = '';
   if (!rows.length) { list.innerHTML = '<div class="empty">Sin pedidos para mostrar</div>'; return; }
@@ -800,45 +804,49 @@ function renderHistorial() {
     el.className = 'hist-row';
     el.innerHTML = `<div class="info"><div class="cli"></div><div class="obs"></div></div>
       <div class="cant">${productChipsHtml(p.productos_total || {})}</div>
-      <button class="pago-btn"></button>`;
+      <select class="pago-sel"></select>`;
     el.querySelector('.cli').textContent = p.cliente || '';
     const obs = el.querySelector('.obs');
     obs.textContent = 'Entregado ' + (p.fecha_entrega || '—').split(' ')[0]
       + ((p.entregas || []).length > 1 ? ` · ${p.entregas.length} tandas` : '')
-      + (p.pagado && p.fecha_pago ? ` · pagó ${p.fecha_pago}` : '');
+      + (p.estado_pago !== 'sin pagar' && p.fecha_pago ? ` · ${p.estado_pago} desde ${p.fecha_pago}` : '');
     if (p.link_remito) {
       const a = document.createElement('a');
       a.href = p.link_remito; a.target = '_blank'; a.textContent = ' · remito ↗';
       obs.appendChild(a);
     }
-    const btn = el.querySelector('.pago-btn');
-    btn.className = 'pago-btn ' + (p.pagado ? 'si' : 'no');
-    btn.textContent = p.pagado ? '✔ Pagado' : '⏳ Sin pagar';
-    btn.addEventListener('click', () => togglePago(p, btn));
+    const sel = el.querySelector('.pago-sel');
+    const est = p.estado_pago || 'sin pagar';
+    ESTADOS_PAGO.forEach(e => { const o = document.createElement('option'); o.value = e; o.textContent = e === 'pagada' ? '✔ Pagada' : e.charAt(0).toUpperCase() + e.slice(1); sel.appendChild(o); });
+    sel.value = est;
+    sel.className = 'pago-sel e' + ESTADOS_PAGO.indexOf(est);
+    sel.addEventListener('change', () => cambiarPago(p, sel));
     list.appendChild(el);
   });
 }
 
-async function togglePago(p, btn) {
-  const nuevo = !p.pagado;
-  if (!confirm(`${p.cliente}: ¿marcar la factura como ${nuevo ? 'PAGADA' : 'SIN PAGAR'}?`)) return;
-  btn.disabled = true; btn.textContent = 'Guardando…';
+const ESTADOS_PAGO = ['sin pagar', 'muestra gratis', 'uso interno INGECO', 'pagada'];
+
+async function cambiarPago(p, sel) {
+  const nuevo = sel.value;
+  if (!confirm(`${p.cliente}: ¿cambiar la factura a "${nuevo.toUpperCase()}"?`)) { sel.value = p.estado_pago || 'sin pagar'; return; }
+  sel.disabled = true;
   try {
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'marcarPago', id: p.id, pagado: nuevo })
+      body: JSON.stringify({ action: 'marcarPago', id: p.id, estado_pago: nuevo })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
-    p.pagado = nuevo;
-    p.fecha_pago = nuevo ? new Date().toLocaleDateString('es-AR') : '';
-    toast(nuevo ? 'Marcado como pagado' : 'Marcado como sin pagar', 'ok');
+    p.estado_pago = nuevo;
+    p.fecha_pago = nuevo === 'sin pagar' ? '' : new Date().toLocaleDateString('es-AR');
+    toast('Guardado: ' + nuevo, 'ok');
     renderHistorial();
     fetchAll();
   } catch (e) {
     toast('Error: ' + e.message, 'err');
-    btn.disabled = false; renderHistorial();
+    renderHistorial();
   }
 }
 
