@@ -125,6 +125,7 @@ function doPost(e) {
     else if (action === 'actualizarFechaEntrega') result = actualizarFechaEntrega(body);
     else if (action === 'editarParciales')        result = editarParciales(body);
     else if (action === 'setCapacidadDiaria')     result = setCapacidadDiaria(body);
+    else if (action === 'marcarPago')             result = marcarPago(body);
     else throw new Error('Acción desconocida: ' + action);
     return jsonResponse({ ok: true, data: result });
   } catch (err) {
@@ -262,13 +263,43 @@ function getEntregados() {
       link_remito: ultima.link_remito || '',
       usuario_entrega: ultima.usuario_entrega || '',
       entregas: entregasOrd,
+      pagado: esPagado_(p.pagado),
+      fecha_pago: fmtDate_(p.fecha_pago),
       _fecha_iso: ultima.fecha_iso || ''
     });
   });
   return out
     .sort((a, b) => (b._fecha_iso || '').localeCompare(a._fecha_iso || ''))
-    .slice(0, 50)
+    .slice(0, 300)
     .map(r => { delete r._fecha_iso; return r; });
+}
+
+function esPagado_(v) {
+  return v === true || /^(si|sí|true|1|x)$/i.test(String(v || '').trim());
+}
+
+// Marca/desmarca si el cliente pagó la factura del pedido. Crea las columnas
+// pagado / fecha_pago en PEDIDOS si todavía no existen.
+function marcarPago(body) {
+  const id = String(body.id || '');
+  if (!id) throw new Error('Falta id de pedido');
+  const pagado = !!body.pagado;
+  const sh = ss_().getSheetByName(SH_PEDIDOS);
+  let headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  ['pagado', 'fecha_pago'].forEach(h => {
+    if (headers.indexOf(h) === -1) {
+      sh.getRange(1, headers.length + 1).setValue(h);
+      headers.push(h);
+    }
+  });
+  const cId = headers.indexOf('id') + 1;
+  const ids = sh.getRange(2, cId, Math.max(sh.getLastRow() - 1, 1), 1).getValues();
+  const idx = ids.findIndex(r => String(r[0]) === id);
+  if (idx < 0) throw new Error('Pedido no encontrado: ' + id);
+  const row = idx + 2;
+  sh.getRange(row, headers.indexOf('pagado') + 1).setValue(pagado ? 'SI' : 'NO');
+  sh.getRange(row, headers.indexOf('fecha_pago') + 1).setValue(pagado ? new Date() : '');
+  return { id, pagado };
 }
 
 // STOCK layout (tabla por producto, en UNIDADES):

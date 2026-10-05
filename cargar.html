@@ -304,6 +304,19 @@
   .status-bar {
     text-align: center; color: var(--muted); font-size: 11px; padding: 12px 8px;
   }
+  .hist-filtros { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+  .hist-filtros button { border:1px solid var(--border); background:var(--surface); border-radius:999px; padding:6px 12px; font-size:13px; cursor:pointer; }
+  .hist-filtros button.on { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .hist-filtros input { flex:1; min-width:140px; border:1px solid var(--border); border-radius:999px; padding:6px 12px; font-size:13px; }
+  .hist-row { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:8px; display:flex; gap:10px; align-items:center; box-shadow:var(--shadow); }
+  .hist-row .info { flex:1; min-width:0; }
+  .hist-row .cli { font-weight:700; }
+  .hist-row .obs { font-size:12px; color:var(--muted); margin-top:2px; }
+  .hist-row .obs a { color:var(--info); }
+  .pago-btn { border:2px solid; border-radius:10px; padding:8px 10px; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; min-width:96px; }
+  .pago-btn.no { background:#fff7ed; color:#9a3412; border-color:#fb923c; }
+  .pago-btn.si { background:#ccfbf1; color:#115e59; border-color:#14b8a6; }
+  .pago-btn:disabled { opacity:.6; }
 </style>
 </head>
 <body>
@@ -384,6 +397,14 @@
 
   <div class="section-title">Pedidos pendientes — tocá para editar las parciales</div>
   <div id="pendList"></div>
+  <div class="section-title">Historial de entregados — tocá el botón para marcar si pagó la factura</div>
+  <div class="hist-filtros" id="histFiltros">
+    <button data-f="todos" class="on">Todos</button>
+    <button data-f="nopago">Sin pagar</button>
+    <button data-f="pago">Pagados</button>
+    <input type="search" id="histBuscar" placeholder="Buscar cliente…">
+  </div>
+  <div id="histList"></div>
   <div class="helper-links">
     <a id="sheetLink" href="#" target="_blank">📋 Abrir planilla en Drive ↗</a>
   </div>
@@ -471,6 +492,8 @@ const state = {
   clientes: [],
   usuarios: [],
   pendientes: [],
+  entregados: [],
+  histFiltro: 'todos',
   stock: {},
   capacidadDiaria: null,
   parcialesForm: [],  // [{fecha, bolsas_25kg, bigbag_1000kg, emul_1l, emul_5l, emul_20l}]
@@ -545,6 +568,7 @@ function applyData(d) {
     state.clientes         = j.data.clientes         || [];
     state.usuarios         = j.data.usuarios         || [];
     state.pendientes       = j.data.pendientes       || [];
+    state.entregados       = j.data.entregados       || [];
     state.stock            = j.data.stock            || {};
     state.capacidadDiaria  = j.data.capacidad_diaria || (state.capacidad && state.capacidad.capacidad_diaria) || null;
     renderStock();
@@ -552,6 +576,7 @@ function applyData(d) {
     renderUsuarios();
     renderClientes();
     renderPendientes();
+    renderHistorial();
     updateFeedback();
   }
 }
@@ -752,6 +777,69 @@ function productChipsHtml(totals) {
   if (Number(totals.emul_20l) > 0) emul.push(`${fmtNum(totals.emul_20l)}×20L`);
   if (emul.length) parts.push(`<div><small>${emul.join(' · ')}</small></div>`);
   return parts.join('') || '<div>—</div>';
+}
+
+/* ===== HISTORIAL DE ENTREGADOS + PAGO ===== */
+document.querySelectorAll('#histFiltros button').forEach(b => b.addEventListener('click', () => {
+  state.histFiltro = b.dataset.f;
+  document.querySelectorAll('#histFiltros button').forEach(x => x.classList.toggle('on', x === b));
+  renderHistorial();
+}));
+document.getElementById('histBuscar').addEventListener('input', renderHistorial);
+
+function renderHistorial() {
+  const list = document.getElementById('histList');
+  const q = document.getElementById('histBuscar').value.trim().toLowerCase();
+  const rows = state.entregados.filter(p =>
+    (state.histFiltro === 'todos' || (state.histFiltro === 'pago') === !!p.pagado) &&
+    (!q || String(p.cliente || '').toLowerCase().includes(q)));
+  list.innerHTML = '';
+  if (!rows.length) { list.innerHTML = '<div class="empty">Sin pedidos para mostrar</div>'; return; }
+  rows.forEach(p => {
+    const el = document.createElement('div');
+    el.className = 'hist-row';
+    el.innerHTML = `<div class="info"><div class="cli"></div><div class="obs"></div></div>
+      <div class="cant">${productChipsHtml(p.productos_total || {})}</div>
+      <button class="pago-btn"></button>`;
+    el.querySelector('.cli').textContent = p.cliente || '';
+    const obs = el.querySelector('.obs');
+    obs.textContent = 'Entregado ' + (p.fecha_entrega || '—').split(' ')[0]
+      + ((p.entregas || []).length > 1 ? ` · ${p.entregas.length} tandas` : '')
+      + (p.pagado && p.fecha_pago ? ` · pagó ${p.fecha_pago}` : '');
+    if (p.link_remito) {
+      const a = document.createElement('a');
+      a.href = p.link_remito; a.target = '_blank'; a.textContent = ' · remito ↗';
+      obs.appendChild(a);
+    }
+    const btn = el.querySelector('.pago-btn');
+    btn.className = 'pago-btn ' + (p.pagado ? 'si' : 'no');
+    btn.textContent = p.pagado ? '✔ Pagado' : '⏳ Sin pagar';
+    btn.addEventListener('click', () => togglePago(p, btn));
+    list.appendChild(el);
+  });
+}
+
+async function togglePago(p, btn) {
+  const nuevo = !p.pagado;
+  if (!confirm(`${p.cliente}: ¿marcar la factura como ${nuevo ? 'PAGADA' : 'SIN PAGAR'}?`)) return;
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const r = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'marcarPago', id: p.id, pagado: nuevo })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'error');
+    p.pagado = nuevo;
+    p.fecha_pago = nuevo ? new Date().toLocaleDateString('es-AR') : '';
+    toast(nuevo ? 'Marcado como pagado' : 'Marcado como sin pagar', 'ok');
+    renderHistorial();
+    fetchAll();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+    btn.disabled = false; renderHistorial();
+  }
 }
 
 /* ===== TANDAS: form de pedido nuevo ===== */
