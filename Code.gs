@@ -465,6 +465,15 @@ function entregarPedido(body) {
     }
   }
   SpreadsheetApp.flush();
+  try {
+    notificarAppIngeco_('PAVIMAX', {
+      destinatarios: [{ con_modulo: 'PAVIMAX' }, { admin: true }], tipo: 'aviso_general', prioridad: 'normal',
+      titulo: 'Entrega PAVIMAX pedido #' + idPedido + ' · ' + cliente,
+      cuerpo: 'Tanda ' + idParc + ' entregada por ' + usuarioEntr + '. Pedido ' + estado + (observacion ? '. ' + observacion : ''),
+      url_destino: linkRemito || 'https://marcoskatz-cmd.github.io/pavimax/cargar.html', clave_unica: 'entrega-' + idParc
+    });
+    avisarStockBajo_();
+  } catch (e) { console.warn('aviso entrega: ' + e); }
   return { id_parcial: idParc, id_pedido: idPedido, estado, link_remito: linkRemito };
 }
 
@@ -478,6 +487,7 @@ function registrarProduccion(body) {
   const sh = ss.getSheetByName(SH_PRODUCCION);
   if (!sh) throw new Error('Falta hoja PRODUCCION');
   sh.appendRow([new Date(), bolsas, bigbag, kg, operario]);
+  try { avisarStockBajo_(); } catch (e) { console.warn('stock bajo: ' + e); }
   return { fecha: new Date().toISOString(), bolsas_25kg: bolsas, bigbag_1000kg: bigbag, kg_total: kg };
 }
 
@@ -540,6 +550,17 @@ function cargarPedido(body) {
     PRODUCTOS.forEach(k => { o[k] = p.prod[k]; });
     shParc.appendRow(PARC_HEADERS.map(h => o[h] !== undefined ? o[h] : ''));
   });
+  // Aviso por la app INGECO a planta (operario) y admins.
+  try {
+    const res = PRODUCTOS.map(k => { const t = parsed.reduce((a, p) => a + p.prod[k], 0); return t ? t + ' ' + k.replace('_', ' ') : ''; }).filter(Boolean).join(', ');
+    const primera = parsed.map(p => p.fecha).filter(Boolean).sort((a, b) => a - b)[0];
+    notificarAppIngeco_('PAVIMAX', {
+      destinatarios: [{ con_modulo: 'PAVIMAX_OP' }, { admin: true }], tipo: 'aviso_general', prioridad: 'normal',
+      titulo: 'Pedido PAVIMAX #' + id + ' · ' + cliente,
+      cuerpo: res + (parsed.length > 1 ? ' en ' + parsed.length + ' tandas' : '') + (primera ? '. Primera entrega ' + Utilities.formatDate(primera, Session.getScriptTimeZone(), 'dd/MM') : '') + '. Cargó ' + usuarioCarga + (obs ? '. ' + obs : ''),
+      url_destino: 'https://marcoskatz-cmd.github.io/pavimax/', clave_unica: 'pedido-' + id
+    });
+  } catch (e) { console.warn('aviso pedido: ' + e); }
   return { id, parciales: parsed.length };
 }
 
@@ -1534,4 +1555,22 @@ function formatDashboard_(sh, opt) {
   }
   sh.getRange(1, 1, opt.rows, 2)
     .setBorder(true, true, true, true, true, true, COLOR_BORDER, SpreadsheetApp.BorderStyle.SOLID);
+}
+
+
+// Stock bajo de bolsas o big bags: aviso a admins, una vez por día. Umbral editable en STOCK!G2 (bolsas) y G3 (big bags); default 300 / 5.
+function avisarStockBajo_() {
+  const st = getStock();
+  const ss = ss_(); const sh = ss.getSheetByName(SH_STOCK);
+  const umbB = Number(sh.getRange('G2').getValue()) || 300, umbG = Number(sh.getRange('G3').getValue()) || 5;
+  const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+  const avisos = [];
+  if (st.bolsas && st.bolsas.actual <= umbB) avisos.push('Bolsas 25 kg: quedan ' + st.bolsas.actual + ' (umbral ' + umbB + ')');
+  if (st.bigbag && st.bigbag.actual <= umbG) avisos.push('Big bags: quedan ' + st.bigbag.actual + ' (umbral ' + umbG + ')');
+  if (!avisos.length) return;
+  notificarAppIngeco_('PAVIMAX', {
+    destinatarios: [{ con_modulo: 'PAVIMAX' }, { admin: true }], tipo: 'stock_critico', prioridad: 'critica',
+    titulo: 'Stock bajo en PAVIMAX', cuerpo: avisos.join('. '), url_destino: 'https://marcoskatz-cmd.github.io/pavimax/cargar.html',
+    clave_unica: 'stock-bajo-' + hoy, dias_unica: 1
+  });
 }
