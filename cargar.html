@@ -4,46 +4,57 @@
 <script src="https://marcoskatz-cmd.github.io/app-ingeco/guard.js" data-modulo="PAVIMAX"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#157f3d">
+<meta name="theme-color" content="#f5f4f0">
 <title>PAVIMAX — Cargar pedido</title>
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
+<style>:root{--azul:#1e3a8a;--azul-claro:#2b4fb3;--azul-suave:#e6ecfb;--tinta:#0f1a3d;--teal:#0e8a7a;--teal-suave:#dcf1ee;--ambar:#d98f00;--ambar-suave:#fff1cf;--ambar-texto:#8a5a00;--alerta:#b8410e;--alerta-suave:#fbe6dc;--fondo:#f5f4f0;--fondo-2:#ebe9e3;--superficie:#fff;--texto:#171c2e;--texto-2:#5b6274;--texto-3:#8a90a0;--linea:#e2dfd7;--linea-fuerte:#c9c5bb;--radio:14px;--radio-s:10px;--barra-h:56px;--cuerpo:system-ui,sans-serif;--display:system-ui,sans-serif}[data-ig-volver]{display:none}</style>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://marcoskatz-cmd.github.io/app-ingeco/ingeco.css">
+<script src="https://marcoskatz-cmd.github.io/app-ingeco/ingeco.js" defer></script>
 <style>
   :root {
-    --bg: #f5f6f8;
-    --surface: #ffffff;
-    --surface-2: #fafbfc;
-    --text: #111827;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-    --primary: #157f3d;
-    --primary-dark: #0f5e2d;
-    --primary-soft: #e8f5ec;
-    --ok: #16a34a;
-    --ok-dark: #15803d;
-    --warn: #dc2626;
-    --info: #1e40af;
-    --info-soft: #dbeafe;
-    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-    --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+    /* Alias de los nombres de este sistema hacia el estilo común (ingeco.css) */
+    --bg: var(--fondo);
+    --surface: var(--superficie);
+    --surface-2: var(--fondo);
+    --text: var(--texto);
+    --muted: var(--texto-2);
+    --border: var(--linea);
+    --primary: var(--azul);
+    --primary-dark: var(--tinta);
+    --primary-soft: var(--azul-suave);
+    --ok: var(--teal);
+    --ok-dark: var(--teal);
+    --warn: var(--alerta);
+    --info: var(--azul-claro);
+    --info-soft: var(--azul-suave);
+    --tag-bg: var(--ambar-suave);
+    --tag-text: var(--ambar-texto);
+    --tag-border: var(--ambar);
+    --shadow: var(--sombra, 0 1px 2px rgba(23,28,46,.05));
+    --shadow-lg: var(--sombra-alta, 0 12px 32px rgba(23,28,46,.18));
+    --borde-suave: color-mix(in srgb, var(--azul) 18%, var(--superficie));
+    --borde-info: color-mix(in srgb, var(--azul-claro) 30%, var(--superficie));
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    font-family: var(--cuerpo); }
   body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
 
   header {
-    background: var(--surface);
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 10px;
+    background: color-mix(in srgb, var(--fondo) 88%, transparent);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    min-height: var(--barra-h); padding: 6px 12px 6px 8px;
+    border-bottom: 1px solid var(--linea);
+    display: flex; align-items: center; gap: 8px;
     position: sticky; top: 0; z-index: 50;
   }
   header .brand { flex: 1; display: flex; align-items: center; }
   header .brand img { height: 26px; display: block; }
   header .role {
     background: var(--primary-soft); color: var(--primary-dark);
-    border: 1px solid #bbf7d0;
+    border: 1px solid var(--borde-suave);
     padding: 4px 10px; border-radius: 6px;
     font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
   }
@@ -95,7 +106,7 @@
   .cap-day .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
   .cap-day .num { font-size: 22px; font-weight: 800; color: var(--primary-dark); margin-top: 4px; line-height: 1; }
   .cap-day .num.danger { color: var(--warn); }
-  .cap-day .num.warn { color: #d97706; }
+  .cap-day .num.warn { color: var(--ambar-texto); }
   .cap-day .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .cap-day .cap-meta { font-size: 10px; color: var(--muted); margin-top: 4px; }
 
@@ -118,7 +129,7 @@
   }
   .field select {
     -webkit-appearance: none; appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%235b6274' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
     background-repeat: no-repeat; background-position: right 14px center;
     padding-right: 36px;
   }
@@ -198,16 +209,16 @@
     font-size: 13px; font-weight: 600; color: var(--text);
     border: 1px solid var(--border);
   }
-  .parcial-suma.ok   { background: #f0fdf4; color: var(--ok-dark); border-color: #bbf7d0; }
-  .parcial-suma.bad  { background: #fef3c7; color: #92400e;        border-color: #fcd34d; }
+  .parcial-suma.ok   { background: var(--teal-suave); color: var(--teal); border-color: var(--teal); }
+  .parcial-suma.bad  { background: var(--ambar-suave); color: var(--ambar-texto); border-color: var(--ambar); }
 
   .cap-feedback {
     background: var(--surface-2); border-radius: 10px; padding: 12px 14px;
     margin-bottom: 14px; font-size: 14px; line-height: 1.4;
     border: 1px solid var(--border);
   }
-  .cap-feedback.ok   { background: #f0fdf4; color: var(--ok-dark); border-color: #bbf7d0; }
-  .cap-feedback.warn { background: #fef3c7; color: #92400e;        border-color: #fcd34d; }
+  .cap-feedback.ok   { background: var(--teal-suave); color: var(--teal); border-color: var(--teal); }
+  .cap-feedback.warn { background: var(--ambar-suave); color: var(--ambar-texto); border-color: var(--ambar); }
   .cap-feedback strong { color: inherit; font-weight: 700; }
 
   .btn {
@@ -234,16 +245,16 @@
     background: var(--primary-soft); color: var(--primary-dark);
     padding: 6px 10px; border-radius: 6px;
     font-size: 12px; font-weight: 700; min-width: 72px; text-align: center;
-    border: 1px solid #bbf7d0; white-space: nowrap;
+    border: 1px solid var(--borde-suave); white-space: nowrap;
   }
-  .pend-row .fecha-box.urgente { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+  .pend-row .fecha-box.urgente { background: var(--alerta-suave); color: var(--alerta); border-color: color-mix(in srgb, var(--alerta) 40%, var(--superficie)); }
   .pend-row .fecha-box.sin     { background: var(--surface-2); color: var(--muted); border-color: var(--border); }
   .pend-row .info { flex: 1; min-width: 0; }
   .pend-row .info .cli { font-weight: 700; }
   .pend-row .info .obs { font-size: 12px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pend-row .info .parc-tag {
     display: inline-block; background: var(--info-soft); color: var(--info);
-    border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 6px;
+    border: 1px solid var(--borde-info); padding: 2px 8px; border-radius: 6px;
     font-size: 11px; font-weight: 700; margin-top: 4px;
   }
   .pend-row .cant { font-weight: 800; color: var(--primary-dark); font-size: 16px; white-space: nowrap; text-align: right; }
@@ -269,7 +280,7 @@
 
   /* === Modal === */
   .modal-bg {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    position: fixed; inset: 0; background: rgba(15,26,61,0.45);
     display: none; align-items: flex-end; justify-content: center;
     z-index: 100;
   }
@@ -286,13 +297,13 @@
   .modal .info-block {
     background: var(--info-soft); color: var(--info);
     padding: 10px 14px; border-radius: 10px; font-size: 13px;
-    border: 1px solid #bfdbfe; margin-bottom: 12px;
+    border: 1px solid var(--borde-info); margin-bottom: 12px;
   }
 
   /* Toast */
   .toast {
     position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-    background: var(--text); color: white;
+    background: var(--tinta); color: white;
     padding: 10px 18px; border-radius: 10px;
     z-index: 200; font-size: 14px; font-weight: 600;
     opacity: 0; transition: opacity 0.2s; pointer-events: none;
@@ -307,7 +318,7 @@
   }
   .hist-filtros { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
   .hist-filtros button { border:1px solid var(--border); background:var(--surface); border-radius:999px; padding:6px 12px; font-size:13px; cursor:pointer; }
-  .hist-filtros button.on { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .hist-filtros button.on { background:var(--tinta); color:var(--fondo); border-color:var(--tinta); }
   .hist-filtros input { flex:1; min-width:140px; border:1px solid var(--border); border-radius:999px; padding:6px 12px; font-size:13px; }
   .hist-row { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:8px; display:flex; gap:10px; align-items:center; box-shadow:var(--shadow); }
   .hist-row .info { flex:1; min-width:0; }
@@ -315,17 +326,53 @@
   .hist-row .obs { font-size:12px; color:var(--muted); margin-top:2px; }
   .hist-row .obs a { color:var(--info); }
   .pago-sel { border:2px solid; border-radius:10px; padding:8px 6px; font-size:13px; font-weight:700; cursor:pointer; max-width:150px; }
-  .pago-sel.e0 { background:#fff7ed; color:#9a3412; border-color:#fb923c; }
-  .pago-sel.e1 { background:#ede9fe; color:#5b21b6; border-color:#a78bfa; }
-  .pago-sel.e2 { background:#e0f2fe; color:#075985; border-color:#38bdf8; }
-  .pago-sel.e3 { background:#ccfbf1; color:#115e59; border-color:#14b8a6; }
+  .pago-sel.e0 { background:var(--alerta-suave); color:var(--alerta); border-color:var(--alerta); }
+  .pago-sel.e1 { background:var(--fondo-2); color:var(--texto-2); border-color:var(--linea-fuerte); }
+  .pago-sel.e2 { background:var(--azul-suave); color:var(--azul); border-color:var(--azul-claro); }
+  .pago-sel.e3 { background:var(--teal-suave); color:var(--teal); border-color:var(--teal); }
   .pago-sel:disabled { opacity:.6; }
+  /* ===== Estilo común INGECO (ingeco.css): barra, tipografía, botones, inputs, pestañas ===== */
+  header .brand { padding-left: 4px; min-width: 0; }
+  header .brand img, .home-hero img { mix-blend-mode: multiply; } /* el logo tiene fondo blanco */
+  header .brand img { height: 24px; width: auto; }
+  header .brand .brand-text, .home-hero .logo { font-family: var(--display); font-weight: 700; letter-spacing: .04em; color: var(--tinta); }
+  header .brand .brand-text { font-size: 1.2rem; }
+  header .role { background: var(--azul-suave); color: var(--azul); border: none; border-radius: 4px; padding: 2px 8px; font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  header a.link-app, header .back, .sound-toggle, .refresh-btn {
+    background: var(--superficie); border: 1px solid var(--linea-fuerte); color: var(--azul);
+    border-radius: var(--radio-s); min-height: 40px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; text-decoration: none;
+  }
+  header a.link-app { font-size: 13px; padding: 0 12px; }
+  h1, .modal h2, .home-btn .title, .card .cliente { font-family: var(--display); font-weight: 600; color: var(--tinta); }
+  .section-title, .stock-card .lbl, .cap-day .lbl, .help-card .help-title { font-family: var(--display); font-weight: 600; letter-spacing: .06em; }
+  .stock-card .num, .cap-day .num, .card .cantidad, .pend-row .cant, .prod-list-row .cant, .stock-row.total, .home-btn .badge {
+    font-family: var(--display); font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .stock-card, .cap-day, .form-card, .card, .stock-box, .help-card, .home-btn, .pend-row, .hist-row, .entregado, .prod-list-row, .empty {
+    border-color: var(--linea); border-radius: var(--radio); box-shadow: none;
+  }
+  .btn { border-radius: var(--radio-s); min-height: 46px; font-weight: 600; }
+  .btn-secondary { background: var(--superficie); color: var(--azul); border: 1px solid var(--linea-fuerte); }
+  .field input, .field textarea, .field select,
+  .form-card input[type="number"], .form-card input[type="text"], .form-card textarea, .form-card select,
+  .parcial-row input[type="date"], .parcial-row input[type="number"], .hist-filtros input {
+    border-color: var(--linea-fuerte); background-color: var(--superficie);
+  }
+  .field input:focus, .field textarea:focus, .field select:focus,
+  .form-card input:focus, .form-card textarea:focus, .form-card select:focus,
+  .parcial-row input:focus, .hist-filtros input:focus {
+    outline: 2px solid var(--azul-claro); outline-offset: 1px; border-color: var(--azul-claro);
+  }
+  .hist-filtros button { border-color: var(--linea-fuerte); color: var(--texto-2); font-weight: 500; min-height: 36px; }
+  .hist-filtros button.on { background: var(--tinta); color: var(--fondo); border-color: var(--tinta); }
+  .modal { border-radius: var(--radio) var(--radio) 0 0; }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="brand"><img src="logo.png" alt="PAVIMAX" onerror="this.outerHTML='PAVIMAX'"></div>
+  <button class="ig-volver" data-ig-volver aria-label="Volver a la App INGECO"><svg class="i" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+  <div class="brand"><img src="logo.png" alt="PAVIMAX" onerror="this.outerHTML='<span class=\'brand-text\'>PAVIMAX</span>'"></div>
   <span class="role">OFICINA</span>
   <a class="link-app" href="index.html">App ↗</a>
 </header>

@@ -4,7 +4,7 @@
 <script src="https://marcoskatz-cmd.github.io/app-ingeco/guard.js" data-modulo="PAVIMAX_OP"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#157f3d">
+<meta name="theme-color" content="#f5f4f0">
 <title>PAVIMAX</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icon-192.png">
@@ -13,42 +13,50 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="PAVIMAX">
 <meta name="mobile-web-app-capable" content="yes">
+<style>:root{--azul:#1e3a8a;--azul-claro:#2b4fb3;--azul-suave:#e6ecfb;--tinta:#0f1a3d;--teal:#0e8a7a;--teal-suave:#dcf1ee;--ambar:#d98f00;--ambar-suave:#fff1cf;--ambar-texto:#8a5a00;--alerta:#b8410e;--alerta-suave:#fbe6dc;--fondo:#f5f4f0;--fondo-2:#ebe9e3;--superficie:#fff;--texto:#171c2e;--texto-2:#5b6274;--texto-3:#8a90a0;--linea:#e2dfd7;--linea-fuerte:#c9c5bb;--radio:14px;--radio-s:10px;--barra-h:56px;--cuerpo:system-ui,sans-serif;--display:system-ui,sans-serif}[data-ig-volver]{display:none}</style>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://marcoskatz-cmd.github.io/app-ingeco/ingeco.css">
+<script src="https://marcoskatz-cmd.github.io/app-ingeco/ingeco.js" defer></script>
 <style>
   :root {
-    --bg: #f5f6f8;
-    --surface: #ffffff;
-    --surface-2: #fafbfc;
-    --text: #111827;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-    --primary: #157f3d;
-    --primary-dark: #0f5e2d;
-    --primary-soft: #e8f5ec;
-    --ok: #16a34a;
-    --ok-dark: #15803d;
-    --warn: #dc2626;
-    --info: #1e40af;
-    --info-soft: #dbeafe;
-    --tag-bg: #fef3c7;
-    --tag-text: #92400e;
-    --tag-border: #fcd34d;
-    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-    --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+    /* Alias de los nombres de este sistema hacia el estilo común (ingeco.css) */
+    --bg: var(--fondo);
+    --surface: var(--superficie);
+    --surface-2: var(--fondo);
+    --text: var(--texto);
+    --muted: var(--texto-2);
+    --border: var(--linea);
+    --primary: var(--azul);
+    --primary-dark: var(--tinta);
+    --primary-soft: var(--azul-suave);
+    --ok: var(--teal);
+    --ok-dark: var(--teal);
+    --warn: var(--alerta);
+    --info: var(--azul-claro);
+    --info-soft: var(--azul-suave);
+    --tag-bg: var(--ambar-suave);
+    --tag-text: var(--ambar-texto);
+    --tag-border: var(--ambar);
+    --shadow: var(--sombra, 0 1px 2px rgba(23,28,46,.05));
+    --shadow-lg: var(--sombra-alta, 0 12px 32px rgba(23,28,46,.18));
+    --borde-suave: color-mix(in srgb, var(--azul) 18%, var(--superficie));
+    --borde-info: color-mix(in srgb, var(--azul-claro) 30%, var(--superficie));
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     margin: 0; padding: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--cuerpo);
     min-height: 100%;
   }
   body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
 
   /* ===== Header ===== */
   header {
-    background: var(--surface);
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 10px;
+    background: color-mix(in srgb, var(--fondo) 88%, transparent);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    min-height: var(--barra-h); padding: 6px 12px 6px 8px;
+    border-bottom: 1px solid var(--linea);
+    display: flex; align-items: center; gap: 8px;
     position: sticky; top: 0; z-index: 50;
   }
   header .brand {
@@ -107,17 +115,17 @@
   /* ===== Fecha objetivo en cards de pedidos ===== */
   .card .entrega-info {
     background: var(--primary-soft); color: var(--primary-dark);
-    border: 1px solid #bbf7d0;
+    border: 1px solid var(--borde-suave);
     padding: 6px 10px; border-radius: 6px;
     font-size: 13px; font-weight: 600;
     display: inline-block;
   }
   .card .entrega-info.urgente {
-    background: #fef2f2; color: #991b1b; border-color: #fecaca;
+    background: var(--alerta-suave); color: var(--alerta); border-color: color-mix(in srgb, var(--alerta) 40%, var(--superficie));
   }
   .card .parcial-info {
     background: var(--info-soft); color: var(--info);
-    border: 1px solid #bfdbfe;
+    border: 1px solid var(--borde-info);
     padding: 6px 10px; border-radius: 6px;
     font-size: 12px; font-weight: 600;
     display: inline-block;
@@ -201,7 +209,7 @@
     background: var(--primary-soft); color: var(--primary-dark);
     padding: 5px 10px; border-radius: 8px;
     font-size: 13px; font-weight: 700;
-    border: 1px solid #bbf7d0;
+    border: 1px solid var(--borde-suave);
     margin-right: 6px; margin-bottom: 4px;
   }
 
@@ -269,7 +277,7 @@
   }
   .form-card select {
     -webkit-appearance: none; appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%235b6274' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
     background-repeat: no-repeat; background-position: right 14px center;
     padding-right: 36px;
   }
@@ -281,7 +289,7 @@
 
   .saldo-block {
     background: var(--info-soft); color: var(--info);
-    border: 1px solid #bfdbfe;
+    border: 1px solid var(--borde-info);
     padding: 10px 14px; border-radius: 10px;
     font-size: 14px; margin-bottom: 12px;
   }
@@ -289,7 +297,7 @@
 
   /* ===== Modal ===== */
   .modal-bg {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    position: fixed; inset: 0; background: rgba(15,26,61,0.45);
     display: none; align-items: flex-end; justify-content: center;
     z-index: 100;
   }
@@ -316,7 +324,7 @@
   /* ===== Toast ===== */
   .toast {
     position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-    background: var(--text); color: white;
+    background: var(--tinta); color: white;
     padding: 10px 18px; border-radius: 10px;
     z-index: 200; font-size: 14px; font-weight: 600;
     opacity: 0; transition: opacity 0.2s; pointer-events: none;
@@ -332,7 +340,7 @@
     color: var(--muted); padding: 8px 12px; border-radius: 8px;
     font-size: 13px; cursor: pointer; font-weight: 600;
   }
-  .sound-toggle.on { color: var(--ok-dark); border-color: var(--ok); background: #f0fdf4; }
+  .sound-toggle.on { color: var(--teal); border-color: var(--teal); background: var(--teal-suave); }
 
   .refresh-btn {
     background: var(--surface-2); border: 1px solid var(--border);
@@ -348,11 +356,47 @@
   .status-bar {
     text-align: center; color: var(--muted); font-size: 11px; padding: 12px 8px;
   }
+  /* ===== Estilo común INGECO (ingeco.css): barra, tipografía, botones, inputs, pestañas ===== */
+  header .brand { padding-left: 4px; min-width: 0; }
+  header .brand img, .home-hero img { mix-blend-mode: multiply; } /* el logo tiene fondo blanco */
+  header .brand img { height: 24px; width: auto; }
+  header .brand .brand-text, .home-hero .logo { font-family: var(--display); font-weight: 700; letter-spacing: .04em; color: var(--tinta); }
+  header .brand .brand-text { font-size: 1.2rem; }
+  header .role { background: var(--azul-suave); color: var(--azul); border: none; border-radius: 4px; padding: 2px 8px; font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  header a.link-app, header .back, .sound-toggle, .refresh-btn {
+    background: var(--superficie); border: 1px solid var(--linea-fuerte); color: var(--azul);
+    border-radius: var(--radio-s); min-height: 40px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; text-decoration: none;
+  }
+  header a.link-app { font-size: 13px; padding: 0 12px; }
+  h1, .modal h2, .home-btn .title, .card .cliente { font-family: var(--display); font-weight: 600; color: var(--tinta); }
+  .section-title, .stock-card .lbl, .cap-day .lbl, .help-card .help-title { font-family: var(--display); font-weight: 600; letter-spacing: .06em; }
+  .stock-card .num, .cap-day .num, .card .cantidad, .pend-row .cant, .prod-list-row .cant, .stock-row.total, .home-btn .badge {
+    font-family: var(--display); font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .stock-card, .cap-day, .form-card, .card, .stock-box, .help-card, .home-btn, .pend-row, .hist-row, .entregado, .prod-list-row, .empty {
+    border-color: var(--linea); border-radius: var(--radio); box-shadow: none;
+  }
+  .btn { border-radius: var(--radio-s); min-height: 46px; font-weight: 600; }
+  .btn-secondary { background: var(--superficie); color: var(--azul); border: 1px solid var(--linea-fuerte); }
+  .field input, .field textarea, .field select,
+  .form-card input[type="number"], .form-card input[type="text"], .form-card textarea, .form-card select,
+  .parcial-row input[type="date"], .parcial-row input[type="number"], .hist-filtros input {
+    border-color: var(--linea-fuerte); background-color: var(--superficie);
+  }
+  .field input:focus, .field textarea:focus, .field select:focus,
+  .form-card input:focus, .form-card textarea:focus, .form-card select:focus,
+  .parcial-row input:focus, .hist-filtros input:focus {
+    outline: 2px solid var(--azul-claro); outline-offset: 1px; border-color: var(--azul-claro);
+  }
+  .hist-filtros button { border-color: var(--linea-fuerte); color: var(--texto-2); font-weight: 500; min-height: 36px; }
+  .hist-filtros button.on { background: var(--tinta); color: var(--fondo); border-color: var(--tinta); }
+  .modal { border-radius: var(--radio) var(--radio) 0 0; }
 </style>
 </head>
 <body>
 
 <header>
+  <button class="ig-volver" data-ig-volver aria-label="Volver a la App INGECO"><svg class="i" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
   <button class="back" id="backBtn" style="display:none">← Atrás</button>
   <div class="brand"><img src="logo.png" alt="PAVIMAX" onerror="this.outerHTML='<span class=\'brand-text\'>PAVIMAX</span>'"></div>
   <button id="soundBtn" class="sound-toggle" style="display:none">🔔 sonido</button>

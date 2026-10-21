@@ -1,5 +1,7 @@
 /* PAVIMAX service worker — habilita PWA + notificaciones desde SW. */
-const CACHE = 'pavimax-v15';
+const CACHE = 'pavimax-v16';
+// Estilo común de la App INGECO: red primero (siempre la última), caché solo sin señal.
+const COMUN = 'https://marcoskatz-cmd.github.io/app-ingeco/ingeco.';
 const ASSETS = [
   './',
   './index.html',
@@ -32,6 +34,17 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (e.request.method !== 'GET') return;
+  if (url.startsWith(COMUN)) {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {}); }
+          return res;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
   // Network-first para el HTML (así actualizaciones llegan rápido), cache-first para el resto
   if (e.request.mode === 'navigate' || url.endsWith('/index.html') || url.endsWith('/')) {
     e.respondWith(
