@@ -127,7 +127,15 @@ function doPost(e) {
     else if (action === 'setCapacidadDiaria')     result = setCapacidadDiaria(body);
     else if (action === 'marcarPago')             result = marcarPago(body);
     else throw new Error('Acción desconocida: ' + action);
-    return jsonResponse({ ok: true, data: result });
+    // con_all: la respuesta trae el estado completo y el frontend no hace otra vuelta al servidor.
+    let all;
+    if (body.con_all) {
+      SpreadsheetApp.flush();
+      _memoOn = true; _sheetMemo = {}; _pendingWrites = [];
+      try { all = getAll(); } finally { _memoOn = false; }
+      try { flushWrites_(); } catch (e2) { /* espejo */ }
+    }
+    return jsonResponse({ ok: true, data: result, all });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err) });
   }
@@ -420,12 +428,12 @@ function entregarPedido(body) {
   const cI = n => pH.indexOf(n) + 1;
   const rows = shParc.getLastRow() >= 2
     ? shParc.getRange(2, 1, shParc.getLastRow() - 1, shParc.getLastColumn()).getValues() : [];
-  let row = -1, idPedido = '', cliente = '';
+  let row = -1, idPedido = '', cliente = '', pedRow = -1;
   for (let i = 0; i < rows.length; i++) {
     if (String(rows[i][cI('id_parcial') - 1]) === idParc) { row = i + 2; idPedido = String(rows[i][cI('id_pedido') - 1]); break; }
   }
   if (row < 0) throw new Error('Tanda no encontrada: ' + idParc);
-  if (String(shParc.getRange(row, cI('estado')).getValue()).toLowerCase() === 'entregada')
+  if (String(rows[row - 2][cI('estado') - 1]).toLowerCase() === 'entregada')
     throw new Error('Esa tanda ya fue entregada');
 
   // cliente para nombre de archivo
@@ -433,7 +441,7 @@ function entregarPedido(body) {
   const cPI = n => pedH.indexOf(n) + 1;
   if (shPed.getLastRow() >= 2) {
     const pr = shPed.getRange(2, 1, shPed.getLastRow() - 1, shPed.getLastColumn()).getValues();
-    for (let i = 0; i < pr.length; i++) if (String(pr[i][cPI('id') - 1]) === idPedido) { cliente = String(pr[i][cPI('cliente') - 1] || ''); break; }
+    for (let i = 0; i < pr.length; i++) if (String(pr[i][cPI('id') - 1]) === idPedido) { cliente = String(pr[i][cPI('cliente') - 1] || ''); pedRow = i + 2; break; }
   }
 
   let linkRemito = '';
@@ -447,23 +455,20 @@ function entregarPedido(body) {
     linkRemito = file.getUrl();
   }
 
-  shParc.getRange(row, cI('estado')).setValue('entregada');
-  shParc.getRange(row, cI('fecha_entrega')).setValue(new Date());
-  if (cI('observacion_entrega') > 0) shParc.getRange(row, cI('observacion_entrega')).setValue(observacion);
-  if (cI('link_remito') > 0)         shParc.getRange(row, cI('link_remito')).setValue(linkRemito);
-  if (cI('usuario_entrega') > 0)     shParc.getRange(row, cI('usuario_entrega')).setValue(usuarioEntr);
+  // Una sola escritura para toda la fila de la tanda.
+  const fila = rows[row - 2];
+  const setF = (n, v) => { if (cI(n) > 0) fila[cI(n) - 1] = v; };
+  setF('estado', 'entregada'); setF('fecha_entrega', new Date()); setF('observacion_entrega', observacion);
+  setF('link_remito', linkRemito); setF('usuario_entrega', usuarioEntr);
+  // Solo el tramo estado…usuario_entrega (contiguo en PARC_HEADERS): no pisa otras columnas.
+  const c0 = cI('estado'), c1 = Math.max(c0, cI('fecha_entrega'), cI('observacion_entrega'), cI('link_remito'), cI('usuario_entrega'));
+  shParc.getRange(row, c0, 1, c1 - c0 + 1).setValues([fila.slice(c0 - 1, c1)]);
 
-  // Recalcular estado del pedido
-  const todas = (shParc.getLastRow() >= 2
-    ? shParc.getRange(2, 1, shParc.getLastRow() - 1, shParc.getLastColumn()).getValues() : [])
-    .filter(r => String(r[cI('id_pedido') - 1]) === idPedido);
+  // Recalcular estado del pedido (rows ya tiene la tanda actualizada)
+  const todas = rows.filter(r => String(r[cI('id_pedido') - 1]) === idPedido);
   const entregadas = todas.filter(r => String(r[cI('estado') - 1]).toLowerCase() === 'entregada').length;
   const estado = entregadas >= todas.length ? 'entregado' : (entregadas > 0 ? 'parcial' : 'pendiente');
-  if (cPI('estado') > 0) {
-    for (let i = 0; i < shPed.getLastRow() - 1; i++) {
-      if (String(shPed.getRange(i + 2, cPI('id')).getValue()) === idPedido) { shPed.getRange(i + 2, cPI('estado')).setValue(estado); break; }
-    }
-  }
+  if (cPI('estado') > 0 && pedRow > 0) shPed.getRange(pedRow, cPI('estado')).setValue(estado);
   SpreadsheetApp.flush();
   try {
     notificarAppIngeco_('PAVIMAX', {
@@ -475,6 +480,11 @@ function entregarPedido(body) {
     avisarStockBajo_();
   } catch (e) { console.warn('aviso entrega: ' + e); }
   return { id_parcial: idParc, id_pedido: idPedido, estado, link_remito: linkRemito };
+}
+
+/** Agrega todas las tandas en una sola escritura (appendRow por fila era un viaje por tanda). */
+function agregarTandas_(sh, filas) {
+  if (filas.length) sh.getRange(sh.getLastRow() + 1, 1, filas.length, filas[0].length).setValues(filas);
 }
 
 function registrarProduccion(body) {
@@ -545,11 +555,11 @@ function cargarPedido(body) {
     shParc.getRange(2, 1, shParc.getLastRow() - 1, 1).getValues()
       .forEach(([v]) => { const n = Number(v); if (!isNaN(n) && n > maxIdParc) maxIdParc = n; });
   }
-  parsed.forEach((p, idx) => {
+  agregarTandas_(shParc, parsed.map((p, idx) => {
     const o = { id_parcial: maxIdParc + 1 + idx, id_pedido: id, fecha_planeada: p.fecha || '', estado: 'pendiente' };
     PRODUCTOS.forEach(k => { o[k] = p.prod[k]; });
-    shParc.appendRow(PARC_HEADERS.map(h => o[h] !== undefined ? o[h] : ''));
-  });
+    return PARC_HEADERS.map(h => o[h] !== undefined ? o[h] : '');
+  }));
   // Aviso por la app INGECO a planta (operario) y admins.
   try {
     const res = PRODUCTOS.map(k => { const t = parsed.reduce((a, p) => a + p.prod[k], 0); return t ? t + ' ' + k.replace('_', ' ') : ''; }).filter(Boolean).join(', ');
@@ -759,11 +769,11 @@ function editarParciales(body) {
   filasABorrar.sort((a, b) => b - a).forEach(r => shParc.deleteRow(r));
 
   // Insertar nuevas pendientes
-  parsed.forEach((p, idx) => {
+  agregarTandas_(shParc, parsed.map((p, idx) => {
     const o = { id_parcial: maxIdParc + 1 + idx, id_pedido: id, fecha_planeada: p.fecha || '', estado: 'pendiente' };
     PRODUCTOS.forEach(k => { o[k] = p.prod[k]; });
-    shParc.appendRow(PARC_HEADERS.map(h => o[h] !== undefined ? o[h] : ''));
-  });
+    return PARC_HEADERS.map(h => o[h] !== undefined ? o[h] : '');
+  }));
 
   SpreadsheetApp.flush();
   return { id, parciales: parsed.length, saldo };

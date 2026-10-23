@@ -691,6 +691,17 @@ async function fetchAll() {
     const r = await fetch(CONFIG.API_URL + '?action=all&_t=' + Date.now(), { method: 'GET', cache: 'no-store' });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
+    aplicarAll(j.data);
+  } catch (e) {
+    setStatus('error: ' + e.message, true);
+  }
+}
+
+/** Pinta un estado completo, venga del GET o de la respuesta de un guardado (con_all). */
+function aplicarAll(data) {
+  const j = { data };
+  {
+    {
     try { localStorage.setItem('pavimax_op_cache', JSON.stringify(j.data)); } catch (_) {}
     const prev = state.knownIds;
     const ped  = j.data.pendientes || [];
@@ -711,8 +722,7 @@ async function fetchAll() {
     state.firstLoad  = false;
     render();
     setStatus('última act. ' + new Date().toLocaleTimeString());
-  } catch (e) {
-    setStatus('error: ' + e.message, true);
+    }
   }
 }
 
@@ -1041,32 +1051,36 @@ async function confirmarEntrega() {
     if (!confirm('No cargaste foto del remito. ¿Confirmar igual?')) return;
   }
 
-  const btn = document.getElementById('confirmarBtn');
-  btn.disabled = true; btn.textContent = 'Enviando…';
+  // Respuesta inmediata: se cierra el modal y la tanda sale de la lista; el envío sigue por detrás.
+  const envio = {
+    action: 'entregar',
+    id_parcial: state.modalParcial.id_parcial,
+    usuario_entrega: usuario,
+    observacion: document.getElementById('obsEntrega').value.trim(),
+    foto_base64: state.fotoB64 || '',
+    foto_mime: state.fotoMime
+  };
+  const idParc = String(envio.id_parcial);
+  localStorage.setItem('pavimax_usuario_entrega', usuario);
+  closeModal();
+  state.pendientes = state.pendientes
+    .map(p => ({ ...p, parciales_pendientes: (p.parciales_pendientes || []).filter(x => String(x.id_parcial) !== idParc) }))
+    .filter(p => p.parciales_pendientes.length);
+  render();
+  toast('Entrega registrada, enviando…', 'ok');
   try {
     // Si es usuario nuevo, primero lo agregamos
     if (selValue === '__new__') {
       const rAdd = await postAction({ action: 'addUsuario', nombre: usuario });
       if (!rAdd.ok) throw new Error('No se pudo agregar el usuario: ' + (rAdd.error || ''));
     }
-    const r = await postAction({
-      action: 'entregar',
-      id_parcial: state.modalParcial.id_parcial,
-      usuario_entrega: usuario,
-      observacion: document.getElementById('obsEntrega').value.trim(),
-      foto_base64: state.fotoB64 || '',
-      foto_mime: state.fotoMime
-    });
+    const r = await postAction(envio);
     if (!r.ok) throw new Error(r.error || 'error');
-    localStorage.setItem('pavimax_usuario_entrega', usuario);
     const estado = r.estado || (r.data && r.data.estado);
     toast(estado === 'entregado' ? 'Pedido completo ✓' : 'Tanda entregada ✓', 'ok');
-    closeModal();
-    fetchAll();
   } catch (e) {
-    toast('Error: ' + e.message, 'err');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Confirmar entrega';
+    toast('No se guardó la entrega: ' + e.message, 'err');
+    fetchAll();
   }
 }
 
@@ -1086,37 +1100,37 @@ async function guardarProduccion() {
   if (bolsas <= 0 && bigbag <= 0) { toast('Cargá al menos bolsas o big bag', 'err'); return; }
   const operario = document.getElementById('prodOperario').value;
   if (!operario) { toast('Elegí el operario', 'err'); return; }
-  const btn = document.getElementById('prodBtn');
-  btn.disabled = true; btn.textContent = 'Guardando…';
+  // Respuesta inmediata: se suma al stock y a la lista en pantalla; el guardado sigue por detrás.
+  localStorage.setItem('pavimax_usuario_entrega', operario);
+  bolsasInp.value = '';
+  bigbagInp.value = '';
+  updateProdKgPreview();
+  const sumar = (k, n) => { const st = state.stock[k]; if (st && n) { st.producido = (Number(st.producido) || 0) + n; st.actual = (Number(st.actual) || 0) + n; } };
+  sumar('bolsas_25kg', bolsas); sumar('bigbag_1000kg', bigbag);
+  const d = new Date(), z = n => String(n).padStart(2, '0');
+  state.produccion = [{ fecha: `${z(d.getDate())}/${z(d.getMonth() + 1)}/${d.getFullYear()} ${z(d.getHours())}:${z(d.getMinutes())}`, bolsas_25kg: bolsas, bigbag_1000kg: bigbag, kg_total: bolsas * 25 + bigbag * 1000, operario }, ...state.produccion].slice(0, 5);
+  render();
+  toast('Producción registrada ✓', 'ok');
   try {
-    const r = await postAction({
-      action: 'producir',
-      bolsas_25kg: bolsas,
-      bigbag_1000kg: bigbag,
-      operario
-    });
+    const r = await postAction({ action: 'producir', bolsas_25kg: bolsas, bigbag_1000kg: bigbag, operario });
     if (!r.ok) throw new Error(r.error || 'error');
-    localStorage.setItem('pavimax_usuario_entrega', operario);
-    toast('Producción registrada ✓', 'ok');
-    bolsasInp.value = '';
-    bigbagInp.value = '';
-    updateProdKgPreview();
-    fetchAll();
   } catch (e) {
-    toast('Error: ' + e.message, 'err');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Guardar producción';
+    toast('No se guardó la producción: ' + e.message, 'err');
+    fetchAll();
   }
 }
 
 /* ===== HTTP HELPERS ===== */
+// con_all: el servidor devuelve el estado completo ya actualizado (sin un GET extra).
 async function postAction(body) {
   const r = await fetch(CONFIG.API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(body)
+    body: JSON.stringify({ ...body, con_all: true })
   });
-  return r.json();
+  const j = await r.json();
+  if (j.ok && j.all) aplicarAll(j.all);
+  return j;
 }
 
 /* ===== UI HELPERS ===== */

@@ -613,6 +613,14 @@ async function fetchAll() {
   }
 }
 
+// Los guardados piden con_all: la respuesta trae el estado ya actualizado y se evita otro GET de ~6 s.
+function aplicarRespuesta(j) {
+  if (!j.all) return fetchAll();
+  try { localStorage.setItem('pavimax_carga_cache', JSON.stringify(j.all)); } catch (_) {}
+  applyData(j.all);
+  setStatus('última act. ' + new Date().toLocaleTimeString());
+}
+
 function applyData(d) {
   const j = { data: d };
   {
@@ -878,22 +886,24 @@ const ESTADOS_PAGO = ['sin pagar', 'muestra gratis', 'uso interno INGECO', 'paga
 async function cambiarPago(p, sel) {
   const nuevo = sel.value;
   if (!confirm(`${p.cliente}: ¿cambiar la factura a "${nuevo.toUpperCase()}"?`)) { sel.value = p.estado_pago || 'sin pagar'; return; }
-  sel.disabled = true;
+  // Respuesta inmediata: se ve el cambio ya; si el servidor falla, se vuelve atrás.
+  const antes = { estado_pago: p.estado_pago, fecha_pago: p.fecha_pago };
+  p.estado_pago = nuevo;
+  p.fecha_pago = nuevo === 'sin pagar' ? '' : new Date().toLocaleDateString('es-AR');
+  renderHistorial();
+  toast('Guardado: ' + nuevo, 'ok');
   try {
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'marcarPago', id: p.id, estado_pago: nuevo })
+      body: JSON.stringify({ action: 'marcarPago', id: p.id, estado_pago: nuevo, con_all: true })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
-    p.estado_pago = nuevo;
-    p.fecha_pago = nuevo === 'sin pagar' ? '' : new Date().toLocaleDateString('es-AR');
-    toast('Guardado: ' + nuevo, 'ok');
-    renderHistorial();
-    fetchAll();
+    aplicarRespuesta(j);
   } catch (e) {
-    toast('Error: ' + e.message, 'err');
+    Object.assign(p, antes);
+    toast('No se guardó el pago: ' + e.message, 'err');
     renderHistorial();
   }
 }
@@ -1048,6 +1058,7 @@ async function cargarPedido() {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'cargarPedido',
+        con_all: true,
         cliente,
         usuario_carga: usuario,
         observacion: obs,
@@ -1067,7 +1078,7 @@ async function cargarPedido() {
     document.getElementById('feedback').style.display = 'none';
     state.parcialesForm = [emptyTanda(todayIso())];
     renderParcialesForm();
-    fetchAll();
+    aplicarRespuesta(j);
   } catch (e) {
     toast('Error: ' + e.message, 'err');
   } finally {
@@ -1235,6 +1246,7 @@ async function saveEditParciales() {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'editarParciales',
+        con_all: true,
         id: state.editingId,
         parciales
       })
@@ -1243,7 +1255,7 @@ async function saveEditParciales() {
     if (!j.ok) throw new Error(j.error || 'error');
     toast('Parciales actualizadas ✓', 'ok');
     closeEditModal();
-    fetchAll();
+    aplicarRespuesta(j);
   } catch (e) {
     toast('Error: ' + e.message, 'err');
   } finally {
@@ -1291,13 +1303,13 @@ async function capPasoConfirmar() {
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'setCapacidadDiaria', capacidad_diaria: nuevo })
+      body: JSON.stringify({ action: 'setCapacidadDiaria', capacidad_diaria: nuevo , con_all: true })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
     toast(`✓ Capacidad actualizada a ${nuevo}`, 'ok');
     closeCapModal();
-    fetchAll();
+    aplicarRespuesta(j);
   } catch (e) {
     toast('Error: ' + e.message, 'err');
   } finally {

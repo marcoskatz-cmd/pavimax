@@ -1,5 +1,5 @@
 /* PAVIMAX service worker — habilita PWA + notificaciones desde SW. */
-const CACHE = 'pavimax-v16';
+const CACHE = 'pavimax-v17';
 // Estilo común de la App INGECO: red primero (siempre la última), caché solo sin señal.
 const COMUN = 'https://app.ingecosa.com.ar/ingeco.';
 const ASSETS = [
