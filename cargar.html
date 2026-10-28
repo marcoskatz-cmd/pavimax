@@ -1051,9 +1051,8 @@ function updateFeedback() {
 }
 
 /* ===== PRECIO DE VENTA ===== */
-const PRECIO_LABEL = { bolsas_25kg: 'Bolsa 25kg', bigbag_1000kg: 'Big bag 1000kg', emul_1l: 'Emulsión 1L', emul_5l: 'Emulsión 5L', emul_20l: 'Emulsión 20L' };
-state.precioForm = {};
-state.ivaForm = 'sin IVA';
+// var (no const): renderParcialesForm() corre en el arranque, antes de llegar a esta línea.
+var PRECIO_LABEL = { bolsas_25kg: 'Bolsa 25kg', bigbag_1000kg: 'Big bag 1000kg', emul_1l: 'Emulsión 1L', emul_5l: 'Emulsión 5L', emul_20l: 'Emulsión 20L' };
 function fmtPesos(n) { return '$ ' + Math.round(n).toLocaleString('es-AR'); }
 function totalVenta(cant, precios) { return PRODUCTS.reduce((s, pr) => s + (Number(cant[pr.key]) || 0) * (Number(precios[pr.key]) || 0), 0); }
 function cantForm() {
@@ -1062,6 +1061,8 @@ function cantForm() {
   return c;
 }
 function renderPreciosForm() {
+  if (!state.precioForm) state.precioForm = {};
+  if (!state.ivaForm) state.ivaForm = 'sin IVA';
   const cont = document.getElementById('preciosList');
   const cant = cantForm();
   const keys = PRODUCTS.filter(pr => cant[pr.key] > 0).map(pr => pr.key);
