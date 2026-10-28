@@ -325,7 +325,16 @@
   .hist-row .cli { font-weight:700; }
   .hist-row .obs { font-size:12px; color:var(--muted); margin-top:2px; }
   .hist-row .obs a { color:var(--info); }
-  .pago-sel { border:2px solid; border-radius:10px; padding:8px 6px; font-size:13px; font-weight:700; cursor:pointer; max-width:150px; }
+  .iva-toggle { display:flex; gap:6px; margin-bottom:8px; }
+.iva-toggle button { flex:1; padding:9px; border:2px solid var(--border); border-radius:10px; background:var(--surface); font-weight:700; font-size:14px; cursor:pointer; }
+.iva-toggle button.on { border-color:#157f3d; background:#e8f5ec; color:#0f5e2d; }
+.precio-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.precio-row span { flex:1; font-size:14px; }
+.precio-row input { width:130px; padding:8px; border:1px solid var(--border); border-radius:8px; font-size:15px; text-align:right; }
+.precio-total { font-weight:700; font-size:14px; margin-top:4px; }
+.precio-btn { border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 6px; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap; }
+.precio-btn.vacio { color:#b45309; border-color:#f59e0b; }
+.pago-sel { border:2px solid; border-radius:10px; padding:8px 6px; font-size:13px; font-weight:700; cursor:pointer; max-width:150px; }
   .pago-sel.e0 { background:var(--alerta-suave); color:var(--alerta); border-color:var(--alerta); }
   .pago-sel.e1 { background:var(--fondo-2); color:var(--texto-2); border-color:var(--linea-fuerte); }
   .pago-sel.e2 { background:var(--azul-suave); color:var(--azul); border-color:var(--azul-claro); }
@@ -433,6 +442,16 @@
       <label>Tandas de entrega <small style="color: var(--muted); font-weight: 500; text-transform: none;">— fecha opcional por tanda, cargá las cantidades por producto</small></label>
       <div class="parciales-list" id="parcialesList"></div>
       <button class="parcial-add" id="addParcialBtn" type="button">➕ Agregar tanda</button>
+    </div>
+
+    <div class="field">
+      <label>Precio de venta (por unidad)</label>
+      <div class="iva-toggle" id="ivaToggle">
+        <button type="button" data-iva="sin IVA" class="on">Sin IVA</button>
+        <button type="button" data-iva="con IVA">Con IVA</button>
+      </div>
+      <div id="preciosList"></div>
+      <div class="precio-total" id="precioTotal"></div>
     </div>
 
     <div class="field">
@@ -860,7 +879,27 @@ function renderHistorial() {
     el.className = 'hist-row';
     el.innerHTML = `<div class="info"><div class="cli"></div><div class="obs"></div></div>
       <div class="cant">${productChipsHtml(p.productos_total || {})}</div>
+      <button type="button" class="precio-btn"></button>
       <select class="pago-sel"></select>`;
+    const pb = el.querySelector('.precio-btn');
+    pb.textContent = precioTexto(p);
+    pb.classList.toggle('vacio', pb.textContent.startsWith('💲'));
+    pb.addEventListener('click', () => editarPrecio(p));
+    const fac = document.createElement('div');
+    fac.className = 'obs';
+    if (p.link_factura) {
+      const a = document.createElement('a');
+      a.href = p.link_factura; a.target = '_blank'; a.textContent = '🧾 factura ↗';
+      fac.appendChild(a);
+    }
+    const fb = document.createElement('button');
+    fb.type = 'button'; fb.className = 'precio-btn' + (p.link_factura ? '' : ' vacio');
+    fb.style.marginLeft = '6px';
+    fb.textContent = p._subiendo ? 'Subiendo…' : (p.link_factura ? 'Reemplazar' : '🧾 Cargar factura');
+    fb.disabled = !!p._subiendo;
+    fb.addEventListener('click', () => subirFactura(p));
+    fac.appendChild(fb);
+    el.querySelector('.info').appendChild(fac);
     el.querySelector('.cli').textContent = p.cliente || '';
     const obs = el.querySelector('.obs');
     obs.textContent = 'Entregado ' + (p.fecha_entrega || '—').split(' ')[0]
@@ -935,8 +974,10 @@ function renderParcialesForm() {
       const k = e.target.dataset.k;
       state.parcialesForm[i][k] = k === 'fecha' ? e.target.value : (e.target.value === '' ? '' : Number(e.target.value));
       updateFeedback();
+      renderPreciosForm();
     });
   });
+  renderPreciosForm();
   list.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const i = Number(e.target.dataset.i);
@@ -1009,6 +1050,114 @@ function updateFeedback() {
   }
 }
 
+/* ===== PRECIO DE VENTA ===== */
+const PRECIO_LABEL = { bolsas_25kg: 'Bolsa 25kg', bigbag_1000kg: 'Big bag 1000kg', emul_1l: 'Emulsión 1L', emul_5l: 'Emulsión 5L', emul_20l: 'Emulsión 20L' };
+state.precioForm = {};
+state.ivaForm = 'sin IVA';
+function fmtPesos(n) { return '$ ' + Math.round(n).toLocaleString('es-AR'); }
+function totalVenta(cant, precios) { return PRODUCTS.reduce((s, pr) => s + (Number(cant[pr.key]) || 0) * (Number(precios[pr.key]) || 0), 0); }
+function cantForm() {
+  const c = {};
+  PRODUCTS.forEach(pr => { c[pr.key] = state.parcialesForm.reduce((s, t) => s + (Number(t[pr.key]) || 0), 0); });
+  return c;
+}
+function renderPreciosForm() {
+  const cont = document.getElementById('preciosList');
+  const cant = cantForm();
+  const keys = PRODUCTS.filter(pr => cant[pr.key] > 0).map(pr => pr.key);
+  // Solo re-dibujar si cambiaron los productos (no perder el foco al tipear).
+  if (cont.dataset.keys !== keys.join()) {
+    cont.dataset.keys = keys.join();
+    cont.innerHTML = keys.length ? '' : '<div class="empty" style="padding:8px">Cargá cantidades en las tandas para poner precio</div>';
+    keys.forEach(k => {
+      const row = document.createElement('div');
+      row.className = 'precio-row';
+      row.innerHTML = `<span>${PRECIO_LABEL[k]}</span><input type="number" inputmode="decimal" min="0" step="any" placeholder="$ por unidad">`;
+      const inp = row.querySelector('input');
+      inp.value = state.precioForm[k] || '';
+      inp.addEventListener('input', () => { state.precioForm[k] = inp.value === '' ? '' : Number(inp.value); renderPreciosForm(); });
+      cont.appendChild(row);
+    });
+  }
+  const tot = totalVenta(cant, state.precioForm);
+  document.getElementById('precioTotal').textContent = tot > 0 ? `Total: ${fmtPesos(tot)} ${state.ivaForm}` : '';
+}
+document.querySelectorAll('#ivaToggle button').forEach(b => b.addEventListener('click', () => {
+  state.ivaForm = b.dataset.iva;
+  document.querySelectorAll('#ivaToggle button').forEach(x => x.classList.toggle('on', x === b));
+  renderPreciosForm();
+}));
+
+function precioTexto(p) {
+  const tot = totalVenta(p.productos_total || {}, (p.precio && p.precio.precios) || {});
+  return tot > 0 ? `${fmtPesos(tot)} ${p.precio.iva === 'con IVA' ? 'c/IVA' : 's/IVA'}` : '💲 Poner precio';
+}
+async function editarPrecio(p) {
+  const actual = (p.precio && p.precio.precios) || {};
+  const nuevos = {};
+  for (const pr of PRODUCTS) {
+    if (!(Number((p.productos_total || {})[pr.key]) > 0)) continue;
+    const v = prompt(`${p.cliente} — precio por unidad de ${PRECIO_LABEL[pr.key]} (${p.productos_total[pr.key]} u.):`, actual[pr.key] || '');
+    if (v === null) return;
+    const n = Number(String(v).replace(/\./g, '').replace(',', '.'));
+    if (v.trim() !== '' && !(n >= 0)) { toast('Precio inválido', 'err'); return; }
+    nuevos[pr.key] = v.trim() === '' ? 0 : n;
+  }
+  const iva = confirm('¿El precio INCLUYE IVA?\n\nAceptar = CON IVA · Cancelar = SIN IVA') ? 'con IVA' : 'sin IVA';
+  const antes = p.precio;
+  p.precio = { precios: nuevos, iva };
+  renderHistorial(); renderPendientes && renderPendientes();
+  toast('Precio guardado', 'ok');
+  try {
+    const r = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'setPrecio', id: p.id, precios: nuevos, iva, con_all: true })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'error');
+    aplicarRespuesta(j);
+  } catch (e) {
+    p.precio = antes;
+    toast('No se guardó el precio: ' + e.message, 'err');
+    renderHistorial();
+  }
+}
+
+function subirFactura(p) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*,application/pdf';
+  inp.addEventListener('change', async () => {
+    const f = inp.files[0];
+    if (!f) return;
+    if (f.size > 15 * 1024 * 1024) { toast('El archivo pesa más de 15 MB', 'err'); return; }
+    const b64 = await new Promise((ok, ko) => {
+      const rd = new FileReader();
+      rd.onload = () => ok(String(rd.result).split(',')[1]);
+      rd.onerror = ko;
+      rd.readAsDataURL(f);
+    });
+    p._subiendo = true; renderHistorial();
+    try {
+      const r = await fetch(CONFIG.API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'subirFactura', id: p.id, archivo_base64: b64, mime: f.type || 'application/pdf', con_all: true })
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'error');
+      p.link_factura = j.data.link_factura;
+      toast('✓ Factura cargada', 'ok');
+      aplicarRespuesta(j);
+    } catch (e) {
+      toast('No se subió la factura: ' + e.message, 'err');
+    } finally {
+      p._subiendo = false; renderHistorial();
+    }
+  });
+  inp.click();
+}
+
 /* ===== CARGAR PEDIDO ===== */
 async function cargarPedido() {
   const usuario = getUsuarioName();
@@ -1062,7 +1211,9 @@ async function cargarPedido() {
         cliente,
         usuario_carga: usuario,
         observacion: obs,
-        parciales
+        parciales,
+        precios: state.precioForm,
+        iva: state.ivaForm
       })
     });
     const j = await r.json();
@@ -1077,6 +1228,8 @@ async function cargarPedido() {
     document.getElementById('observacion').value = '';
     document.getElementById('feedback').style.display = 'none';
     state.parcialesForm = [emptyTanda(todayIso())];
+    state.precioForm = {};
+    document.getElementById('preciosList').dataset.keys = '-';
     renderParcialesForm();
     aplicarRespuesta(j);
   } catch (e) {

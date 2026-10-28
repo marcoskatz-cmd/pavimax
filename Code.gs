@@ -126,6 +126,8 @@ function doPost(e) {
     else if (action === 'editarParciales')        result = editarParciales(body);
     else if (action === 'setCapacidadDiaria')     result = setCapacidadDiaria(body);
     else if (action === 'marcarPago')             result = marcarPago(body);
+    else if (action === 'setPrecio')              result = setPrecio(body);
+    else if (action === 'subirFactura')           result = subirFactura(body);
     else throw new Error('Acción desconocida: ' + action);
     // con_all: la respuesta trae el estado completo y el frontend no hace otra vuelta al servidor.
     let all;
@@ -214,6 +216,7 @@ function getPendientes() {
       material_kg: material_kg,
       observacion_pedido: p.observacion_pedido || '',
       estado: estado,
+      precio: precioDe_(p),
       proxima_fecha: proxima ? fmtDate_(proxima.fecha_planeada) : '',
       proxima_fecha_iso: proxima ? toIsoDate_(proxima.fecha_planeada) : '',
       parciales_pendientes: pendientesP.map(pa => {
@@ -272,6 +275,8 @@ function getEntregados() {
       usuario_entrega: ultima.usuario_entrega || '',
       entregas: entregasOrd,
       estado_pago: estadoPago_(p.pagado),
+      precio: precioDe_(p),
+      link_factura: p.link_factura || '',
       fecha_pago: fmtDate_(p.fecha_pago),
       _fecha_iso: ultima.fecha_iso || ''
     });
@@ -314,6 +319,68 @@ function marcarPago(body) {
   sh.getRange(row, headers.indexOf('pagado') + 1).setValue(estado);
   sh.getRange(row, headers.indexOf('fecha_pago') + 1).setValue(estado === 'sin pagar' ? '' : new Date());
   return { id, estado_pago: estado };
+}
+
+// === PRECIO DE VENTA por pedido: precio unitario por producto + si incluye IVA ===
+// Columnas en PEDIDOS: precio_<producto> (x5) + iva ('con IVA' | 'sin IVA'). Se crean solas.
+const PRECIO_HEADERS = PRODUCTOS.map(k => 'precio_' + k).concat(['iva']);
+function ivaNorm_(v) { return /^con/i.test(String(v || '').trim()) ? 'con IVA' : 'sin IVA'; }
+function precioMap_(body) {
+  const m = {};
+  const pr = body.precios || {};
+  PRODUCTOS.forEach(k => { const n = Number(pr[k]); m['precio_' + k] = n > 0 ? n : ''; });
+  m.iva = ivaNorm_(body.iva);
+  return m;
+}
+function precioDe_(p) {
+  const precios = {};
+  PRODUCTOS.forEach(k => { precios[k] = Number(p['precio_' + k]) || 0; });
+  return { precios: precios, iva: ivaNorm_(p.iva) };
+}
+function asegurarCols_(sh, cols) {
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  cols.forEach(h => {
+    if (headers.indexOf(h) === -1) { sh.getRange(1, headers.length + 1).setValue(h); headers.push(h); }
+  });
+  return headers;
+}
+
+function setPrecio(body) {
+  const id = String(body.id || '');
+  if (!id) throw new Error('Falta id de pedido');
+  const sh = ss_().getSheetByName(SH_PEDIDOS);
+  const headers = asegurarCols_(sh, PRECIO_HEADERS);
+  const cId = headers.indexOf('id') + 1;
+  const ids = sh.getRange(2, cId, Math.max(sh.getLastRow() - 1, 1), 1).getValues();
+  const idx = ids.findIndex(r => String(r[0]) === id);
+  if (idx < 0) throw new Error('Pedido no encontrado: ' + id);
+  const m = precioMap_(body);
+  const row = sh.getRange(idx + 2, 1, 1, headers.length).getValues()[0];
+  PRECIO_HEADERS.forEach(h => { row[headers.indexOf(h)] = m[h]; });
+  sh.getRange(idx + 2, 1, 1, headers.length).setValues([row]);
+  return { id: id };
+}
+
+// Sube la factura (foto o PDF) del pedido a Drive y guarda el link en PEDIDOS.link_factura.
+function subirFactura(body) {
+  const id = String(body.id || '');
+  const b64 = String(body.archivo_base64 || '');
+  if (!id) throw new Error('Falta id de pedido');
+  if (!b64) throw new Error('Falta el archivo');
+  const mime = String(body.mime || 'application/pdf');
+  const sh = ss_().getSheetByName(SH_PEDIDOS);
+  const headers = asegurarCols_(sh, ['link_factura']);
+  const cId = headers.indexOf('id') + 1;
+  const ids = sh.getRange(2, cId, Math.max(sh.getLastRow() - 1, 1), 1).getValues();
+  const idx = ids.findIndex(r => String(r[0]) === id);
+  if (idx < 0) throw new Error('Pedido no encontrado: ' + id);
+  const ext = mime === 'application/pdf' ? 'pdf' : (mime.split('/')[1] || 'jpg');
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
+  const file = DriveApp.getFolderById(FOLDER_ID).createFile(
+    Utilities.newBlob(Utilities.base64Decode(b64), mime, `factura_${id}_${stamp}.${ext}`));
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  sh.getRange(idx + 2, headers.indexOf('link_factura') + 1).setValue(file.getUrl());
+  return { id: id, link_factura: file.getUrl() };
 }
 
 // STOCK layout (tabla por producto, en UNIDADES):
@@ -537,7 +604,7 @@ function cargarPedido(body) {
   const shParc = ss.getSheetByName(SH_PARCIALES);
   if (!shPed || !shParc) throw new Error('Faltan hojas — corré initSheets()');
 
-  const headers = shPed.getRange(1, 1, 1, shPed.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const headers = asegurarCols_(shPed, PRECIO_HEADERS);
   let maxId = 0;
   if (shPed.getLastRow() >= 2) {
     shPed.getRange(2, 1, shPed.getLastRow() - 1, 1).getValues()
@@ -548,6 +615,7 @@ function cargarPedido(body) {
     id: id, fecha_carga: new Date(), usuario_carga: usuarioCarga,
     cliente: cliente, observacion_pedido: obs, estado: 'pendiente'
   };
+  Object.assign(valMap, precioMap_(body));
   shPed.appendRow(headers.map(h => valMap[h] !== undefined ? valMap[h] : ''));
 
   let maxIdParc = 0;
