@@ -124,6 +124,8 @@ function doPost(e) {
     else if (action === 'addUsuario')             result = addUsuario(body);
     else if (action === 'actualizarFechaEntrega') result = actualizarFechaEntrega(body);
     else if (action === 'editarParciales')        result = editarParciales(body);
+    else if (action === 'editarPedido')           result = editarPedido(body);
+    else if (action === 'eliminarPedido')         result = eliminarPedido(body);
     else if (action === 'setCapacidadDiaria')     result = setCapacidadDiaria(body);
     else if (action === 'marcarPago')             result = marcarPago(body);
     else if (action === 'setPrecio')              result = setPrecio(body);
@@ -766,7 +768,100 @@ function actualizarFechaEntrega(body) {
  * body: { id (id_pedido), parciales: [{ fecha_entrega, bolsas_25kg, bigbag_1000kg, emul_1l, emul_5l, emul_20l }, ...] }
  * La suma por producto de las nuevas parciales debe coincidir con el saldo pendiente por producto.
  */
-function editarParciales(body) {
+function editarParciales(body) { return reemplazarPendientes_(body, { libre: false }); }
+
+/**
+ * Editar un pedido pendiente desde la app: cliente, observación y las tandas pendientes
+ * con las cantidades que sean (sin exigir que coincidan con lo cargado originalmente).
+ * Las tandas ya entregadas no se tocan.
+ * body: { id, cliente?, observacion?, parciales: [{ fecha_entrega, bolsas_25kg, ... }, ...] }
+ */
+function editarPedido(body) {
+  const res = reemplazarPendientes_(body, { libre: true });
+  const ss = ss_();
+  const shPed = ss.getSheetByName(SH_PEDIDOS);
+  const headers = shPed.getRange(1, 1, 1, shPed.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const colId = headers.indexOf('id') + 1;
+  const lastP = shPed.getLastRow();
+  const ids = lastP >= 2 ? shPed.getRange(2, colId, lastP - 1, 1).getValues() : [];
+  const idx = ids.findIndex(r => String(r[0]) === String(res.id));
+  if (idx >= 0) {
+    const row = idx + 2;
+    if (body.cliente !== undefined) {
+      const cliente = String(body.cliente || '').trim();
+      if (!cliente) throw new Error('Falta cliente');
+      try { addCliente({ nombre: cliente }); } catch (_) {}
+      const c = headers.indexOf('cliente') + 1;
+      if (c > 0) shPed.getRange(row, c).setValue(cliente);
+    }
+    if (body.observacion !== undefined) {
+      const c = headers.indexOf('observacion_pedido') + 1;
+      if (c > 0) shPed.getRange(row, c).setValue(String(body.observacion || '').trim());
+    }
+    SpreadsheetApp.flush();
+  }
+  return res;
+}
+
+/**
+ * Eliminar un pedido desde la app.
+ * - Sin entregas registradas: borra el pedido y todas sus tandas.
+ * - Con alguna tanda entregada: NO se borra el historial (afecta stock y ganancias); se
+ *   eliminan solo las tandas pendientes y el pedido queda 'entregado' con lo que ya salió.
+ * body: { id }
+ */
+function eliminarPedido(body) {
+  const id = String(body.id || '').trim();
+  if (!id) throw new Error('Falta id');
+  const ss = ss_();
+  const shPed  = ss.getSheetByName(SH_PEDIDOS);
+  const shParc = ss.getSheetByName(SH_PARCIALES);
+  if (!shPed || !shParc) throw new Error('Faltan hojas');
+
+  const pedHeaders = shPed.getRange(1, 1, 1, shPed.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const colId  = pedHeaders.indexOf('id') + 1;
+  const colEst = pedHeaders.indexOf('estado') + 1;
+  if (colId < 1) throw new Error('PEDIDOS sin columna id');
+  const lastP = shPed.getLastRow();
+  let pedRow = -1;
+  if (lastP >= 2) {
+    const ids = shPed.getRange(2, colId, lastP - 1, 1).getValues();
+    for (let i = 0; i < ids.length; i++) if (String(ids[i][0]) === id) { pedRow = i + 2; break; }
+  }
+  if (pedRow < 0) throw new Error('Pedido no encontrado: ' + id);
+
+  const parcHeaders = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0].map(normalizeHeader_);
+  const cIdPed = parcHeaders.indexOf('id_pedido') + 1;
+  const cEstP  = parcHeaders.indexOf('estado') + 1;
+  const lastPa = shParc.getLastRow();
+  const rows = lastPa >= 2 ? shParc.getRange(2, 1, lastPa - 1, shParc.getLastColumn()).getValues() : [];
+  const pendientes = [], entregadas = [];
+  rows.forEach((r, i) => {
+    if (String(r[cIdPed - 1]) !== id) return;
+    if (String(r[cEstP - 1] || '').toLowerCase() === 'entregada') entregadas.push(i + 2);
+    else pendientes.push(i + 2);
+  });
+
+  pendientes.sort((a, b) => b - a).forEach(r => shParc.deleteRow(r));
+  let resultado;
+  if (entregadas.length === 0) {
+    shPed.deleteRow(pedRow);
+    resultado = 'eliminado';
+  } else {
+    if (colEst > 0) shPed.getRange(pedRow, colEst).setValue('entregado');
+    resultado = 'cerrado';
+  }
+  SpreadsheetApp.flush();
+  return { id, resultado, tandas_borradas: pendientes.length, tandas_entregadas: entregadas.length };
+}
+
+/**
+ * Reemplaza las tandas pendientes de un pedido.
+ * opts.libre = false: la suma por producto debe coincidir con el saldo pendiente (solo redistribuir).
+ * opts.libre = true : cualquier cantidad (edición real del pedido).
+ */
+function reemplazarPendientes_(body, opts) {
+  const libre     = !!(opts && opts.libre);
   const id        = String(body.id || '').trim();
   const incoming  = Array.isArray(body.parciales) ? body.parciales : [];
   if (!id) throw new Error('Falta id');
@@ -828,7 +923,7 @@ function editarParciales(body) {
   const saldo = {};
   PRODUCTOS.forEach(k => {
     saldo[k] = total[k] - entregado[k];
-    if (sumaNueva[k] !== saldo[k]) {
+    if (!libre && sumaNueva[k] !== saldo[k]) {
       throw new Error('La suma de ' + k + ' (' + sumaNueva[k] + ') no coincide con el saldo (' + saldo[k] + ')');
     }
   });
@@ -844,7 +939,7 @@ function editarParciales(body) {
   }));
 
   SpreadsheetApp.flush();
-  return { id, parciales: parsed.length, saldo };
+  return { id, parciales: parsed.length, saldo: libre ? sumaNueva : saldo };
 }
 
 function getClientes() {

@@ -482,26 +482,40 @@
 
 </main>
 
-<!-- Modal: editar parciales de un pedido pendiente -->
+<!-- Modal: editar / eliminar un pedido pendiente -->
 <div class="modal-bg" id="editModalBg">
   <div class="modal">
-    <h2>Editar parciales pendientes</h2>
+    <h2>Editar pedido</h2>
     <div class="sub" id="editSub"></div>
+
+    <div class="field">
+      <label>Cliente <span class="req">*</span></label>
+      <input type="text" id="editCliente" list="editClientesList" autocomplete="off" placeholder="Cliente">
+      <datalist id="editClientesList"></datalist>
+    </div>
+    <div class="field">
+      <label>Observación</label>
+      <input type="text" id="editObs" autocomplete="off" placeholder="Opcional">
+    </div>
 
     <div class="info-block" id="editSaldoInfo"></div>
 
     <div class="field">
-      <label>Parciales pendientes (la suma por producto debe igualar el saldo)</label>
+      <label>Tandas pendientes <small style="color: var(--muted); font-weight: 500; text-transform: none;">— podés cambiar fechas y cantidades; lo ya entregado no se toca</small></label>
       <div class="parciales-list" id="editParcialesList"></div>
       <button class="parcial-add" id="editAddParcialBtn" type="button">➕ Agregar tanda</button>
       <div class="parcial-suma" id="editParcialSuma" style="margin-top: 8px;"></div>
     </div>
 
     <div class="cap-feedback" id="editFeedback" style="display:none"></div>
+    <div class="cap-feedback warn" id="editDeleteMsg" style="display:none"></div>
 
     <div class="actions">
       <button class="btn btn-secondary" id="editCancelBtn">Cancelar</button>
       <button class="btn btn-primary" id="editSaveBtn">Guardar</button>
+    </div>
+    <div class="actions" style="margin-top: 8px;">
+      <button class="btn btn-danger" id="editDeleteBtn" type="button">🗑 Eliminar pedido</button>
     </div>
   </div>
 </div>
@@ -570,7 +584,8 @@ const state = {
   parcialesForm: [],  // [{fecha, bolsas_25kg, bigbag_1000kg, emul_1l, emul_5l, emul_20l}]
   editingId: null,
   editParciales: [],  // parciales editables del pedido seleccionado
-  editSaldos: {},      // saldo pendiente por producto
+  editSaldos: {},      // saldo pendiente por producto (referencia)
+  editDeleteConfirm: false,
   capPasoConfirm: false
 };
 
@@ -585,6 +600,7 @@ document.getElementById('addParcialBtn').addEventListener('click', () => addParc
 document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
 document.getElementById('editSaveBtn').addEventListener('click', saveEditParciales);
 document.getElementById('editAddParcialBtn').addEventListener('click', () => addEditParcialRow());
+document.getElementById('editDeleteBtn').addEventListener('click', eliminarPedido);
 document.getElementById('editModalBg').addEventListener('click', e => {
   if (e.target.id === 'editModalBg') closeEditModal();
 });
@@ -1257,18 +1273,34 @@ function openEditModal(id) {
     state.editParciales = [row];
   }
   document.getElementById('editSub').textContent =
-    `${p.cliente}` + (p.observacion_pedido ? ` (${p.observacion_pedido})` : '');
+    `Pedido #${p.id}` + (p.usuario_carga ? ` · cargado por ${p.usuario_carga}` : '')
+    + (p.estado === 'parcial' ? ' · ya tiene entregas registradas' : '');
+  document.getElementById('editCliente').value = p.cliente || '';
+  document.getElementById('editObs').value = p.observacion_pedido || '';
+  const dl = document.getElementById('editClientesList');
+  dl.innerHTML = '';
+  state.clientes.forEach(c => { const o = document.createElement('option'); o.value = c; dl.appendChild(o); });
   document.getElementById('editSaldoInfo').innerHTML =
-    'Saldo pendiente a entregar: ' + productChipsHtml(state.editSaldos);
+    'Hoy quedan pendientes: ' + productChipsHtml(state.editSaldos);
   renderEditParciales();
   document.getElementById('editFeedback').style.display = 'none';
+  resetEditDelete();
   document.getElementById('editModalBg').classList.add('show');
+}
+
+function resetEditDelete() {
+  state.editDeleteConfirm = false;
+  const msg = document.getElementById('editDeleteMsg');
+  msg.style.display = 'none'; msg.textContent = '';
+  const btn = document.getElementById('editDeleteBtn');
+  btn.disabled = false; btn.textContent = '🗑 Eliminar pedido';
 }
 
 function closeEditModal() {
   document.getElementById('editModalBg').classList.remove('show');
   state.editingId = null;
   state.editParciales = [];
+  resetEditDelete();
 }
 
 function renderEditParciales() {
@@ -1331,11 +1363,11 @@ function updateEditParcialSuma() {
   const linea = PRODUCTS.map(pr => {
     const s = suma[pr.key] || 0, t = state.editSaldos[pr.key] || 0;
     if (s === 0 && t === 0) return '';
-    return `${pr.label}: ${fmtNum(s)}/${fmtNum(t)}`;
+    return `${pr.label}: ${fmtNum(s)}` + (s !== t ? ` (antes ${fmtNum(t)})` : '');
   }).filter(Boolean).join(' · ');
-  const ok = PRODUCTS.every(pr => (suma[pr.key] || 0) === (state.editSaldos[pr.key] || 0));
-  el.textContent = 'Suma: ' + (linea || '0');
-  el.className = 'parcial-suma' + (ok ? ' ok' : ' bad');
+  const algo = PRODUCTS.some(pr => (suma[pr.key] || 0) > 0);
+  el.textContent = 'Queda pendiente: ' + (linea || '0');
+  el.className = 'parcial-suma' + (algo ? ' ok' : ' bad');
 }
 
 function updateEditFeedback() {
@@ -1383,14 +1415,10 @@ async function saveEditParciales() {
       return t;
     })
     .filter(t => PRODUCTS.some(pr => t[pr.key] > 0));
-  if (parciales.length === 0) { toast('Agregá al menos un producto en alguna tanda', 'err'); return; }
-
-  const suma = parciales.reduce((acc, t) => addProducts(acc, sumProducts(t)), sumProducts({}));
-  const ok = PRODUCTS.every(pr => (suma[pr.key] || 0) === (state.editSaldos[pr.key] || 0));
-  if (!ok) {
-    toast('La suma por producto no coincide con el saldo pendiente', 'err');
-    return;
-  }
+  if (parciales.length === 0) { toast('Agregá al menos un producto en alguna tanda (o eliminá el pedido)', 'err'); return; }
+  const cliente = document.getElementById('editCliente').value.trim();
+  const observacion = document.getElementById('editObs').value.trim();
+  if (!cliente) { toast('Falta el cliente', 'err'); return; }
 
   const btn = document.getElementById('editSaveBtn');
   btn.disabled = true; btn.textContent = 'Guardando…';
@@ -1399,15 +1427,17 @@ async function saveEditParciales() {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
-        action: 'editarParciales',
+        action: 'editarPedido',
         con_all: true,
         id: state.editingId,
+        cliente,
+        observacion,
         parciales
       })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
-    toast('Parciales actualizadas ✓', 'ok');
+    toast('Pedido actualizado ✓', 'ok');
     closeEditModal();
     aplicarRespuesta(j);
   } catch (e) {
@@ -1415,6 +1445,44 @@ async function saveEditParciales() {
   } finally {
     btn.disabled = false; btn.textContent = 'Guardar';
   }
+}
+
+async function eliminarPedido() {
+  if (!state.editingId) return;
+  const p = state.pendientes.find(x => String(x.id) === String(state.editingId));
+  if (!p) return;
+  const btn = document.getElementById('editDeleteBtn');
+  const msg = document.getElementById('editDeleteMsg');
+  if (!state.editDeleteConfirm) {
+    state.editDeleteConfirm = true;
+    msg.style.display = '';
+    msg.textContent = p.estado === 'parcial'
+      ? `Este pedido ya tiene entregas hechas: se conserva lo entregado y se cancela lo que falta (${productosResumen(state.editSaldos)}). ¿Confirmás?`
+      : `Se borra el pedido #${p.id} de ${p.cliente} con todas sus tandas. No se puede deshacer. ¿Confirmás?`;
+    btn.textContent = 'Sí, eliminar';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Eliminando…';
+  try {
+    const r = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'eliminarPedido', con_all: true, id: state.editingId })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'error');
+    toast(j.data && j.data.resultado === 'cerrado' ? 'Pendiente cancelado ✓' : 'Pedido eliminado ✓', 'ok');
+    closeEditModal();
+    aplicarRespuesta(j);
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+    resetEditDelete();
+  }
+}
+
+function productosResumen(t) {
+  return PRODUCTS.map(pr => (Number(t[pr.key]) || 0) > 0 ? `${fmtNum(t[pr.key])} ${pr.label}` : '')
+    .filter(Boolean).join(', ') || 'nada';
 }
 
 /* ===== CAPACIDAD MODAL (doble confirmación) ===== */
