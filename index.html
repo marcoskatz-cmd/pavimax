@@ -1216,49 +1216,89 @@ async function desmarcarListo(p, pp) {
 /* ===== ETIQUETA PALLET (imprimir / guardar PDF) ===== */
 const NOMBRES_PROD = { bolsas_25kg: 'Bolsas 25 kg', bigbag_1000kg: 'Big bag 1000 kg', emul_1l: 'Emulsión 1 L', emul_5l: 'Emulsión 5 L', emul_20l: 'Emulsión 20 L' };
 function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const BOLSAS_POR_PALLET = 60;   // un pallet carga hasta 60 bolsas de 25 kg
+
+/** Arma la lista de pallets de una tanda: bolsas de a 60, cada big bag en su pallet, la emulsión en uno aparte. */
+function palletsDeTanda(pp) {
+  const out = [];
+  const bolsas = Number(pp.bolsas_25kg) || 0;
+  for (let i = 0; i < bolsas; i += BOLSAS_POR_PALLET) {
+    out.push({ tipo: 'bolsas', cant: Math.min(BOLSAS_POR_PALLET, bolsas - i), nombre: 'Bolsas 25 kg' });
+  }
+  const bigbag = Number(pp.bigbag_1000kg) || 0;
+  for (let i = 0; i < bigbag; i++) out.push({ tipo: 'bigbag', cant: 1, nombre: 'Big bag 1000 kg' });
+  const emul = ['emul_1l', 'emul_5l', 'emul_20l'].filter(k => Number(pp[k]) > 0);
+  if (emul.length) out.push({ tipo: 'emul', cant: 0, nombre: 'Emulsión', detalle: emul.map(k => `${fmtNum(pp[k])} × ${NOMBRES_PROD[k]}`) });
+  return out;
+}
+
 function imprimirEtiqueta(p, pp) {
   const logo = new URL('logo.png', location.href).href;
-  const filas = Object.keys(NOMBRES_PROD).filter(k => Number(pp[k]) > 0)
-    .map(k => `<tr><td class="n">${fmtNum(pp[k])}</td><td>${NOMBRES_PROD[k]}</td></tr>`).join('');
-  const kg = Number(pp.material_kg) || 0;
-  const obs = p.observacion_pedido ? `<div class="obs">${esc(p.observacion_pedido)}</div>` : '';
+  const pallets = palletsDeTanda(pp);
+  if (!pallets.length) { toast('Esta tanda no tiene productos', 'err'); return; }
+  const N = pallets.length;
+  const totalTxt = Object.keys(NOMBRES_PROD).filter(k => Number(pp[k]) > 0)
+    .map(k => `${fmtNum(pp[k])} ${NOMBRES_PROD[k]}`).join(' + ');
+  const obs = p.observacion_pedido ? `<div class="obs">⚠ ${esc(p.observacion_pedido)}</div>` : '';
+  const impreso = new Date().toLocaleString('es-AR');
+
+  const paginas = pallets.map((pl, i) => {
+    let contenido;
+    if (pl.tipo === 'bolsas') {
+      contenido = `<div class="big">${fmtNum(pl.cant)}<small>bolsas en este pallet</small></div>`;
+    } else if (pl.tipo === 'bigbag') {
+      contenido = `<div class="big">1<small>big bag 1000 kg</small></div>`;
+    } else {
+      contenido = `<div class="big" style="font-size:34pt">${pl.detalle.map(esc).join('<br>')}<small>emulsión asfáltica</small></div>`;
+    }
+    return `
+  <section class="pagina">
+    <div class="head">
+      <img src="${logo}" alt="PAVIMAX">
+      <div class="ped">Pedido<b>#${esc(p.id)}</b></div>
+    </div>
+    <div class="pallet-n">PALLET <b>${i + 1}</b> DE <b>${N}</b></div>
+    <div class="lbl">Cliente</div>
+    <div class="cliente">${esc(p.cliente)}</div>
+    <div class="lbl">Fecha de entrega</div>
+    <div class="fecha">${esc(pp.fecha || 'sin fecha')}</div>
+    <div class="lbl">En este pallet</div>
+    ${contenido}
+    <div class="total">Pedido completo: <b>${esc(totalTxt)}</b> en ${N} pallet${N > 1 ? 's' : ''}</div>
+    ${obs}
+    <div class="foot"><span>PAVIMAX · pallet ${i + 1}/${N} · tanda ${esc(pp.id_parcial)}</span><span>Impreso ${impreso}${pp.listo_por ? ' · Armó: ' + esc(pp.listo_por) : ''}</span></div>
+  </section>`;
+  }).join('');
+
   const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-<title>Pallet ${esc(p.cliente)} - ${esc(pp.fecha || '')}</title>
+<title>Pallets ${esc(p.cliente)} - ${esc(pp.fecha || '')}</title>
 <style>
-  @page { size: A4 portrait; margin: 12mm; }
-  html, body { margin: 0; padding: 0; height: 100%; background: #fff; color-scheme: light; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #111; display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; padding: 10mm; }
-  .head { display: flex; align-items: center; justify-content: space-between; border-bottom: 6px solid #157f3d; padding-bottom: 8mm; }
-  .head img { height: 34mm; max-width: 60%; object-fit: contain; }
-  .head .ped { text-align: right; font-size: 18pt; color: #444; }
-  .head .ped b { display: block; font-size: 26pt; color: #111; }
-  .lbl { font-size: 16pt; text-transform: uppercase; letter-spacing: 3px; color: #157f3d; font-weight: 700; margin: 10mm 0 2mm; }
-  .cliente { font-size: 54pt; font-weight: 900; line-height: 1.05; word-break: break-word; }
-  .fecha { font-size: 60pt; font-weight: 900; color: #157f3d; line-height: 1; }
-  table { border-collapse: collapse; margin-top: 4mm; font-size: 22pt; }
-  td { padding: 3mm 6mm 3mm 0; border-bottom: 1px solid #ccc; }
-  td.n { font-weight: 900; text-align: right; font-size: 30pt; padding-right: 8mm; }
-  .kg { margin-top: 3mm; font-size: 16pt; color: #555; }
-  .obs { margin-top: 6mm; font-size: 18pt; background: #fef3c7; border: 2px solid #f59e0b; padding: 4mm 6mm; border-radius: 4mm; }
-  .foot { margin-top: auto; padding-top: 6mm; border-top: 2px solid #ccc; font-size: 12pt; color: #666; display: flex; justify-content: space-between; }
-  @media screen { body { max-width: 210mm; margin: 0 auto; } .print-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #157f3d; padding: 12px; text-align: center; }
-    .print-bar button { font-size: 18px; font-weight: 700; padding: 12px 24px; border: 0; border-radius: 10px; background: #fff; color: #157f3d; } }
+  @page { size: A4 portrait; margin: 10mm; }
+  html, body { margin: 0; padding: 0; background: #fff; color-scheme: light; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; }
+  .pagina { display: flex; flex-direction: column; box-sizing: border-box; padding: 8mm; min-height: 270mm; page-break-after: always; break-after: page; }
+  .pagina:last-of-type { page-break-after: auto; break-after: auto; }
+  .head { display: flex; align-items: center; justify-content: space-between; border-bottom: 6px solid #157f3d; padding-bottom: 5mm; }
+  .head img { height: 26mm; max-width: 55%; object-fit: contain; }
+  .head .ped { text-align: right; font-size: 16pt; color: #444; }
+  .head .ped b { display: block; font-size: 24pt; color: #111; }
+  .pallet-n { margin-top: 6mm; background: #157f3d; color: #fff; text-align: center; font-size: 40pt; font-weight: 900; padding: 6mm 4mm; border-radius: 5mm; letter-spacing: 2px; }
+  .pallet-n b { font-size: 70pt; line-height: 1; vertical-align: -6pt; }
+  .lbl { font-size: 14pt; text-transform: uppercase; letter-spacing: 3px; color: #157f3d; font-weight: 700; margin: 7mm 0 1mm; }
+  .cliente { font-size: 48pt; font-weight: 900; line-height: 1.05; word-break: break-word; }
+  .fecha { font-size: 54pt; font-weight: 900; color: #157f3d; line-height: 1; }
+  .big { font-size: 64pt; font-weight: 900; line-height: 1; }
+  .big small { display: block; font-size: 18pt; font-weight: 700; color: #555; margin-top: 2mm; }
+  .total { margin-top: 7mm; font-size: 16pt; color: #333; border: 2px solid #157f3d; padding: 4mm 6mm; border-radius: 4mm; }
+  .obs { margin-top: 5mm; font-size: 17pt; background: #fef3c7; border: 2px solid #f59e0b; padding: 4mm 6mm; border-radius: 4mm; }
+  .foot { margin-top: auto; padding-top: 4mm; border-top: 2px solid #ccc; font-size: 11pt; color: #666; display: flex; justify-content: space-between; }
+  @media screen { body { max-width: 210mm; margin: 0 auto; padding-bottom: 80px; } .pagina { border-bottom: 3px dashed #999; }
+    .print-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #157f3d; padding: 12px; text-align: center; color: #fff; font-weight: 700; }
+    .print-bar button { font-size: 18px; font-weight: 700; padding: 12px 24px; border: 0; border-radius: 10px; background: #fff; color: #157f3d; margin-left: 10px; } }
   @media print { .print-bar { display: none; } }
 </style></head><body>
-  <div class="head">
-    <img src="${logo}" alt="PAVIMAX">
-    <div class="ped">Pedido<b>#${esc(p.id)}</b>Tanda ${esc(pp.id_parcial)}</div>
-  </div>
-  <div class="lbl">Cliente</div>
-  <div class="cliente">${esc(p.cliente)}</div>
-  <div class="lbl">Fecha de entrega</div>
-  <div class="fecha">${esc(pp.fecha || 'sin fecha')}</div>
-  <div class="lbl">Contenido</div>
-  <table>${filas || '<tr><td>—</td></tr>'}</table>
-  ${kg ? `<div class="kg">${fmtNum(kg)} kg de material</div>` : ''}
-  ${obs}
-  <div class="foot"><span>PAVIMAX · etiqueta de pallet</span><span>Impreso ${new Date().toLocaleString('es-AR')}${pp.listo_por ? ' · Armó: ' + esc(pp.listo_por) : ''}</span></div>
-  <div class="print-bar"><button onclick="window.print()">🖨 Imprimir / Guardar PDF</button></div>
+  ${paginas}
+  <div class="print-bar">${N} hoja${N > 1 ? 's' : ''} <button onclick="window.print()">🖨 Imprimir / Guardar PDF</button></div>
 </body></html>`;
   const w = window.open('', '_blank');
   if (!w) { toast('El navegador bloqueó la ventana. Permití ventanas emergentes.', 'err'); return; }
