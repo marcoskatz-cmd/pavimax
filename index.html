@@ -132,6 +132,24 @@
   }
   .tandas-title { font-weight: 700; margin-bottom: 4px; }
   .tanda-row { font-size: 13px; padding: 2px 0; }
+  .tanda-item {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+    padding: 8px 0; border-top: 1px dashed var(--border);
+  }
+  .tanda-item:first-of-type { border-top: none; }
+  .tanda-item .tanda-txt { flex: 1 1 100%; font-size: 14px; font-weight: 600; color: var(--text); }
+  .tanda-item .tanda-listo {
+    flex: 1 1 100%; font-size: 12px; font-weight: 700; color: var(--teal);
+  }
+  .tanda-item .tanda-listo small { color: var(--muted); font-weight: 500; }
+  .btn-mini {
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 700;
+    cursor: pointer; font-family: inherit; flex: 1 1 auto;
+  }
+  .btn-mini.listo { background: var(--ambar-suave); color: var(--ambar-texto); border-color: var(--ambar); }
+  .btn-mini.listo.on { background: color-mix(in srgb, var(--teal) 15%, var(--superficie)); color: var(--teal); border-color: var(--teal); }
+  .stock-row.disp { font-weight: 800; color: var(--teal); }
   .card .saldo-info {
     font-size: 13px; color: var(--muted);
   }
@@ -456,6 +474,9 @@
       <div class="stock-row"><span class="lbl">Producido</span><span id="stockBolsasProd">—</span></div>
       <div class="stock-row"><span class="lbl">Vendido</span><span id="stockBolsasVen">—</span></div>
       <div class="stock-row total"><span>Actual</span><span id="stockBolsasAct">—</span></div>
+      <div class="stock-row"><span class="lbl">Comprometido (pedidos pendientes)</span><span id="stockBolsasComp">—</span></div>
+      <div class="stock-row"><span class="lbl">De eso, ya en pallet</span><span id="stockBolsasPal">—</span></div>
+      <div class="stock-row disp"><span>Disponible</span><span id="stockBolsasDisp">—</span></div>
     </div>
 
     <div class="section-title">Stock — Big bag 1000kg</div>
@@ -464,6 +485,9 @@
       <div class="stock-row"><span class="lbl">Producido</span><span id="stockBigbagProd">—</span></div>
       <div class="stock-row"><span class="lbl">Vendido</span><span id="stockBigbagVen">—</span></div>
       <div class="stock-row total"><span>Actual</span><span id="stockBigbagAct">—</span></div>
+      <div class="stock-row"><span class="lbl">Comprometido (pedidos pendientes)</span><span id="stockBigbagComp">—</span></div>
+      <div class="stock-row"><span class="lbl">De eso, ya en pallet</span><span id="stockBigbagPal">—</span></div>
+      <div class="stock-row disp"><span>Disponible</span><span id="stockBigbagDisp">—</span></div>
     </div>
 
     <div class="section-title">Producción del día</div>
@@ -528,6 +552,22 @@
     <div class="actions">
       <button class="btn btn-secondary" id="cancelarBtn">Cancelar</button>
       <button class="btn btn-ok" id="confirmarBtn">Confirmar entrega</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal pallet listo -->
+<div class="modal-bg" id="modalListoBg">
+  <div class="modal">
+    <h2>Pallet listo para entregar</h2>
+    <div class="sub" id="modalListoSub"></div>
+    <div class="field">
+      <label class="label-inline">¿Quién armó el pallet? <span class="req">*</span></label>
+      <select id="usuarioListo"><option value="">— Elegí tu nombre —</option></select>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" id="cancelarListoBtn">Cancelar</button>
+      <button class="btn btn-ok" id="confirmarListoBtn">Marcar listo</button>
     </div>
   </div>
 </div>
@@ -762,6 +802,12 @@ function render() {
   document.getElementById('stockBigbagProd').textContent = fmtNum(stBigbag.producido);
   document.getElementById('stockBigbagVen').textContent  = fmtNum(stBigbag.vendido);
   document.getElementById('stockBigbagAct').textContent  = fmtNum(stBigbag.actual);
+  document.getElementById('stockBolsasComp').textContent = fmtNum(stBolsas.comprometido);
+  document.getElementById('stockBolsasPal').textContent  = fmtNum(stBolsas.en_pallet);
+  document.getElementById('stockBolsasDisp').textContent = fmtNum(stBolsas.disponible);
+  document.getElementById('stockBigbagComp').textContent = fmtNum(stBigbag.comprometido);
+  document.getElementById('stockBigbagPal').textContent  = fmtNum(stBigbag.en_pallet);
+  document.getElementById('stockBigbagDisp').textContent = fmtNum(stBigbag.disponible);
 
   const pl = document.getElementById('produccionList');
   pl.innerHTML = '';
@@ -861,12 +907,36 @@ function cardPendiente(p) {
   const parc = el.querySelector('.parcial-info');
   if (pend.length > 0) {
     parc.style.display = '';
-    const filas = pend.map(pp => {
-      const venc = pp.fecha_iso && pp.fecha_iso <= hoy ? ' ⏰' : '';
-      return `<div class="tanda-row">📅 ${pp.fecha || 'sin fecha'} — ${productosLabel(pp)}${venc}</div>`;
-    }).join('');
     const plural = pend.length > 1 ? 's' : '';
-    parc.innerHTML = `<div class="tandas-title">${pend.length} tanda${plural} pendiente${plural}:</div>${filas}`;
+    parc.innerHTML = `<div class="tandas-title">${pend.length} tanda${plural} pendiente${plural}:</div>`;
+    parc.style.display = 'block';
+    pend.forEach(pp => {
+      const venc = pp.fecha_iso && pp.fecha_iso <= hoy ? ' ⏰' : '';
+      const item = document.createElement('div');
+      item.className = 'tanda-item';
+      item.innerHTML = `
+        <div class="tanda-txt"></div>
+        <div class="tanda-listo" style="display:none"></div>
+        <button type="button" class="btn-mini listo"></button>
+        <button type="button" class="btn-mini etiqueta">🖨 Etiqueta pallet</button>`;
+      item.querySelector('.tanda-txt').textContent = `📅 ${pp.fecha || 'sin fecha'} — ${productosLabel(pp)}${venc}`;
+      const bl = item.querySelector('.btn-mini.listo');
+      if (pp.listo_por) {
+        const li = item.querySelector('.tanda-listo');
+        li.style.display = '';
+        li.innerHTML = '✅ Listo en pallet · <span class="who"></span> <small class="when"></small>';
+        li.querySelector('.who').textContent = pp.listo_por;
+        li.querySelector('.when').textContent = pp.fecha_listo || '';
+        bl.classList.add('on');
+        bl.textContent = 'Quitar listo';
+        bl.addEventListener('click', () => desmarcarListo(p, pp));
+      } else {
+        bl.textContent = '📦 Marcar listo';
+        bl.addEventListener('click', () => openModalListo(p, pp));
+      }
+      item.querySelector('.etiqueta').addEventListener('click', () => imprimirEtiqueta(p, pp));
+      parc.appendChild(item);
+    });
   }
 
   const tag = el.querySelector('.tag');
@@ -888,7 +958,7 @@ function cardPendiente(p) {
     });
   }
 
-  el.querySelector('button').addEventListener('click', () => {
+  el.querySelector('.btn.btn-ok').addEventListener('click', () => {
     const chosenId = sel.value || (proxima && proxima.id_parcial);
     const chosen = pend.find(pp => String(pp.id_parcial) === String(chosenId)) || proxima;
     if (!chosen) { toast('No hay tandas pendientes para este pedido', 'err'); return; }
@@ -1082,6 +1152,120 @@ async function confirmarEntrega() {
     toast('No se guardó la entrega: ' + e.message, 'err');
     fetchAll();
   }
+}
+
+/* ===== PALLET LISTO ===== */
+document.getElementById('cancelarListoBtn').addEventListener('click', closeModalListo);
+document.getElementById('confirmarListoBtn').addEventListener('click', confirmarListo);
+
+function openModalListo(p, parcial) {
+  state.listoPedido = p; state.listoParcial = parcial;
+  document.getElementById('modalListoSub').textContent =
+    p.cliente + ' — tanda del ' + (parcial.fecha || 'sin fecha') + ' · ' + productosLabel(parcial);
+  const sel = document.getElementById('usuarioListo');
+  sel.innerHTML = '<option value="">— Elegí tu nombre —</option>';
+  state.usuarios.forEach(u => {
+    const opt = document.createElement('option'); opt.value = u; opt.textContent = u; sel.appendChild(opt);
+  });
+  const ultimo = localStorage.getItem('pavimax_usuario_entrega');
+  if (ultimo && state.usuarios.includes(ultimo)) sel.value = ultimo;
+  document.getElementById('modalListoBg').classList.add('show');
+}
+function closeModalListo() {
+  document.getElementById('modalListoBg').classList.remove('show');
+  state.listoPedido = null; state.listoParcial = null;
+}
+function aplicarListoLocal(idParc, usuario, fecha) {
+  state.pendientes.forEach(p => (p.parciales_pendientes || []).forEach(pp => {
+    if (String(pp.id_parcial) === String(idParc)) { pp.listo_por = usuario; pp.fecha_listo = fecha; }
+  }));
+  render();
+}
+async function confirmarListo() {
+  const p = state.listoPedido, pp = state.listoParcial;
+  if (!p || !pp) return;
+  const usuario = document.getElementById('usuarioListo').value;
+  if (!usuario) { toast('Elegí tu nombre', 'err'); return; }
+  localStorage.setItem('pavimax_usuario_entrega', usuario);
+  closeModalListo();
+  const d = new Date(), z2 = n => String(n).padStart(2, '0');
+  aplicarListoLocal(pp.id_parcial, usuario, `${z2(d.getDate())}/${z2(d.getMonth() + 1)}/${d.getFullYear()} ${z2(d.getHours())}:${z2(d.getMinutes())}`);
+  toast('Pallet marcado listo, guardando…', 'ok');
+  try {
+    const r = await postAction({ action: 'marcarListo', id_parcial: pp.id_parcial, usuario, listo: true });
+    if (!r.ok) throw new Error(r.error || 'error');
+    toast('Pallet listo ✓', 'ok');
+  } catch (e) {
+    toast('No se guardó: ' + e.message, 'err');
+    fetchAll();
+  }
+}
+async function desmarcarListo(p, pp) {
+  if (!confirm('¿Quitar la marca de "listo" de esta tanda?')) return;
+  aplicarListoLocal(pp.id_parcial, '', '');
+  try {
+    const r = await postAction({ action: 'marcarListo', id_parcial: pp.id_parcial, listo: false });
+    if (!r.ok) throw new Error(r.error || 'error');
+    toast('Marca quitada', 'ok');
+  } catch (e) {
+    toast('No se guardó: ' + e.message, 'err');
+    fetchAll();
+  }
+}
+
+/* ===== ETIQUETA PALLET (imprimir / guardar PDF) ===== */
+const NOMBRES_PROD = { bolsas_25kg: 'Bolsas 25 kg', bigbag_1000kg: 'Big bag 1000 kg', emul_1l: 'Emulsión 1 L', emul_5l: 'Emulsión 5 L', emul_20l: 'Emulsión 20 L' };
+function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function imprimirEtiqueta(p, pp) {
+  const logo = new URL('logo.png', location.href).href;
+  const filas = Object.keys(NOMBRES_PROD).filter(k => Number(pp[k]) > 0)
+    .map(k => `<tr><td class="n">${fmtNum(pp[k])}</td><td>${NOMBRES_PROD[k]}</td></tr>`).join('');
+  const kg = Number(pp.material_kg) || 0;
+  const obs = p.observacion_pedido ? `<div class="obs">${esc(p.observacion_pedido)}</div>` : '';
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<title>Pallet ${esc(p.cliente)} - ${esc(pp.fecha || '')}</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #fff; color-scheme: light; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; padding: 10mm; }
+  .head { display: flex; align-items: center; justify-content: space-between; border-bottom: 6px solid #157f3d; padding-bottom: 8mm; }
+  .head img { height: 34mm; max-width: 60%; object-fit: contain; }
+  .head .ped { text-align: right; font-size: 18pt; color: #444; }
+  .head .ped b { display: block; font-size: 26pt; color: #111; }
+  .lbl { font-size: 16pt; text-transform: uppercase; letter-spacing: 3px; color: #157f3d; font-weight: 700; margin: 10mm 0 2mm; }
+  .cliente { font-size: 54pt; font-weight: 900; line-height: 1.05; word-break: break-word; }
+  .fecha { font-size: 60pt; font-weight: 900; color: #157f3d; line-height: 1; }
+  table { border-collapse: collapse; margin-top: 4mm; font-size: 22pt; }
+  td { padding: 3mm 6mm 3mm 0; border-bottom: 1px solid #ccc; }
+  td.n { font-weight: 900; text-align: right; font-size: 30pt; padding-right: 8mm; }
+  .kg { margin-top: 3mm; font-size: 16pt; color: #555; }
+  .obs { margin-top: 6mm; font-size: 18pt; background: #fef3c7; border: 2px solid #f59e0b; padding: 4mm 6mm; border-radius: 4mm; }
+  .foot { margin-top: auto; padding-top: 6mm; border-top: 2px solid #ccc; font-size: 12pt; color: #666; display: flex; justify-content: space-between; }
+  @media screen { body { max-width: 210mm; margin: 0 auto; } .print-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #157f3d; padding: 12px; text-align: center; }
+    .print-bar button { font-size: 18px; font-weight: 700; padding: 12px 24px; border: 0; border-radius: 10px; background: #fff; color: #157f3d; } }
+  @media print { .print-bar { display: none; } }
+</style></head><body>
+  <div class="head">
+    <img src="${logo}" alt="PAVIMAX">
+    <div class="ped">Pedido<b>#${esc(p.id)}</b>Tanda ${esc(pp.id_parcial)}</div>
+  </div>
+  <div class="lbl">Cliente</div>
+  <div class="cliente">${esc(p.cliente)}</div>
+  <div class="lbl">Fecha de entrega</div>
+  <div class="fecha">${esc(pp.fecha || 'sin fecha')}</div>
+  <div class="lbl">Contenido</div>
+  <table>${filas || '<tr><td>—</td></tr>'}</table>
+  ${kg ? `<div class="kg">${fmtNum(kg)} kg de material</div>` : ''}
+  ${obs}
+  <div class="foot"><span>PAVIMAX · etiqueta de pallet</span><span>Impreso ${new Date().toLocaleString('es-AR')}${pp.listo_por ? ' · Armó: ' + esc(pp.listo_por) : ''}</span></div>
+  <div class="print-bar"><button onclick="window.print()">🖨 Imprimir / Guardar PDF</button></div>
+</body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { toast('El navegador bloqueó la ventana. Permití ventanas emergentes.', 'err'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+  const go = () => { try { w.focus(); w.print(); } catch (_) {} };
+  const img = w.document.querySelector('img');
+  if (img && !img.complete) { img.onload = go; img.onerror = go; setTimeout(go, 2500); } else setTimeout(go, 300);
 }
 
 /* ===== PRODUCCIÓN ===== */

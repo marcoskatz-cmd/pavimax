@@ -92,6 +92,7 @@
   .stock-card .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
   .stock-card .num { font-size: 26px; font-weight: 800; color: var(--primary-dark); line-height: 1.1; margin-top: 4px; }
   .stock-card .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .pend-row .info .parc-tag.listo-tag { background: color-mix(in srgb, var(--teal) 15%, var(--superficie)); color: var(--teal); border-color: var(--teal); margin-left: 4px; }
 
   /* === Capacity overview === */
   .cap-grid {
@@ -705,7 +706,8 @@ function renderStock() {
   const stBigbag = state.stock.bigbag_1000kg || {};
   document.getElementById('stockNum').textContent = fmtNum(stBolsas.actual);
   document.getElementById('stockSub').textContent =
-    'bolsas 25kg · ' + fmtNum(stBigbag.actual) + ' big bag';
+    'bolsas 25kg · ' + fmtNum(stBigbag.actual) + ' big bag'
+    + (stBolsas.disponible != null ? ' · disp. ' + fmtNum(stBolsas.disponible) + ' bolsas' : '');
   document.getElementById('pendCount').textContent = state.pendientes.length;
   const totalBolsas = state.pendientes.reduce((s, p) => s + bolsasDe(pendienteTotals(p)), 0);
   document.getElementById('pendBolsas').textContent = fmtNum(totalBolsas);
@@ -839,6 +841,10 @@ function renderPendientes() {
     const parcTag = nParciales > 1
       ? `<span class="parc-tag">${nParciales} entregas planeadas</span>`
       : '';
+    const listas = (p.parciales_pendientes || []).filter(pa => pa.listo_por);
+    const listoTag = listas.length
+      ? `<span class="parc-tag listo-tag" title="${listas.map(pa => (pa.fecha || '') + ' · ' + pa.listo_por + ' ' + (pa.fecha_listo || '')).join('\n').replace(/"/g, '&quot;')}">📦 ${listas.length === nParciales ? 'Listo en pallet' : listas.length + '/' + nParciales + ' en pallet'} · ${listas[listas.length - 1].listo_por}</span>`
+      : '';
     const totals = pendienteTotals(p);
     const chips = productChipsHtml(totals);
     el.innerHTML = `
@@ -846,7 +852,7 @@ function renderPendientes() {
       <div class="info">
         <div class="cli"></div>
         <div class="obs"></div>
-        ${parcTag}
+        ${parcTag}${listoTag}
       </div>
       <div class="cant">
         ${chips}

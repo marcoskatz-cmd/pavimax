@@ -34,7 +34,8 @@ const KG_POR = { bolsas_25kg: 25, bigbag_1000kg: 1000, emul_1l: 0, emul_5l: 0, e
 const PARC_HEADERS = [
   'id_parcial', 'id_pedido', 'fecha_planeada',
   'bolsas_25kg', 'bigbag_1000kg', 'emul_1l', 'emul_5l', 'emul_20l',
-  'estado', 'fecha_entrega', 'observacion_entrega', 'link_remito', 'usuario_entrega'
+  'estado', 'fecha_entrega', 'observacion_entrega', 'link_remito', 'usuario_entrega',
+  'listo_por', 'fecha_listo'   // "listo para entregar": quién armó el pallet y cuándo (se borra al reprogramar)
 ];
 // Encabezados alternativos que puede tener la hoja (ediciones manuales, migraciones viejas)
 // mapeados a la clave canónica que usa el código. Ver ENTREGAS_PARCIALES real: usaba
@@ -130,6 +131,7 @@ function doPost(e) {
     else if (action === 'marcarPago')             result = marcarPago(body);
     else if (action === 'setPrecio')              result = setPrecio(body);
     else if (action === 'subirFactura')           result = subirFactura(body);
+    else if (action === 'marcarListo')            result = marcarListo(body);
     else throw new Error('Acción desconocida: ' + action);
     // con_all: la respuesta trae el estado completo y el frontend no hace otra vuelta al servidor.
     let all;
@@ -225,6 +227,8 @@ function getPendientes() {
         const o = { id_parcial: pa.id_parcial, fecha: fmtDate_(pa.fecha_planeada), fecha_iso: toIsoDate_(pa.fecha_planeada) };
         PRODUCTOS.forEach(k => { o[k] = Number(pa[k]) || 0; });
         o.material_kg = materialKg_(pa);
+        o.listo_por   = String(pa.listo_por || '').trim();
+        o.fecha_listo = o.listo_por ? fmt(pa.fecha_listo) : '';
         return o;
       }),
       // Compat con clientes viejos
@@ -399,6 +403,7 @@ function getStock() {
 
   const producido = sumProducidoPorEnvase_();   // { bolsas_25kg, bigbag_1000kg }
   const vendido   = sumVendidoPorProducto_();    // { producto: unidades }
+  const comp      = sumComprometidoPorProducto_(); // { producto: { comprometido, en_pallet } } (tandas pendientes)
 
   const bolsas = {
     inicial:   iniBolsas,
@@ -406,12 +411,18 @@ function getStock() {
     vendido:   vendido.bolsas_25kg || 0,
     actual:    iniBolsas + producido.bolsas_25kg - (vendido.bolsas_25kg || 0)
   };
+  bolsas.comprometido = comp.bolsas_25kg.comprometido;
+  bolsas.en_pallet    = comp.bolsas_25kg.en_pallet;
+  bolsas.disponible   = bolsas.actual - bolsas.comprometido;
   const bigbag = {
     inicial:   iniBigbag,
     producido: producido.bigbag_1000kg,
     vendido:   vendido.bigbag_1000kg || 0,
     actual:    iniBigbag + producido.bigbag_1000kg - (vendido.bigbag_1000kg || 0)
   };
+  bigbag.comprometido = comp.bigbag_1000kg.comprometido;
+  bigbag.en_pallet    = comp.bigbag_1000kg.en_pallet;
+  bigbag.disponible   = bigbag.actual - bigbag.comprometido;
 
   writeOrDefer_(stockSh.getRange('C2:E3'), [
     [bolsas.producido, bolsas.vendido, bolsas.actual],
@@ -552,7 +563,77 @@ function entregarPedido(body) {
 }
 
 /** Agrega todas las tandas en una sola escritura (appendRow por fila era un viaje por tanda). */
+/** Garantiza que ENTREGAS_PARCIALES tenga todas las columnas de PARC_HEADERS (agrega las que falten al final). */
+function ensureParcCols_(shParc) {
+  let headers = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0].map(normalizeHeader_);
+  PARC_HEADERS.forEach(h => {
+    if (headers.indexOf(h) === -1) {
+      if (shParc.getMaxColumns() < headers.length + 1) shParc.insertColumnAfter(shParc.getMaxColumns());
+      shParc.getRange(1, headers.length + 1).setValue(h);
+      headers.push(h);
+    }
+  });
+  return headers;
+}
+
+/** Borra listo_por / fecha_listo en las filas dadas (si las columnas existen). */
+function limpiarListo_(shParc, filas) {
+  const headers = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0].map(normalizeHeader_);
+  const cL = headers.indexOf('listo_por') + 1, cF = headers.indexOf('fecha_listo') + 1;
+  if (cL < 1 || cF < 1) return;
+  filas.forEach(r => { shParc.getRange(r, cL).setValue(''); shParc.getRange(r, cF).setValue(''); });
+}
+
+/**
+ * Marca (o desmarca) una tanda pendiente como "lista para entregar": el pallet ya está armado.
+ * body: { id_parcial, usuario, listo (default true) }
+ */
+function marcarListo(body) {
+  const idParc  = String(body.id_parcial || '').trim();
+  const usuario = String(body.usuario || '').trim();
+  const listo   = body.listo === undefined ? true : !!body.listo;
+  if (!idParc) throw new Error('Falta id_parcial');
+  if (listo && !usuario) throw new Error('Falta usuario');
+
+  const ss = ss_();
+  const shParc = ss.getSheetByName(SH_PARCIALES);
+  if (!shParc) throw new Error('Falta hoja ENTREGAS_PARCIALES');
+  const headers = ensureParcCols_(shParc);
+  const cI = n => headers.indexOf(n) + 1;
+  const last = shParc.getLastRow();
+  const rows = last >= 2 ? shParc.getRange(2, 1, last - 1, headers.length).getValues() : [];
+  const i = rows.findIndex(r => String(r[cI('id_parcial') - 1]) === idParc);
+  if (i < 0) throw new Error('Tanda no encontrada: ' + idParc);
+  if (String(rows[i][cI('estado') - 1] || '').toLowerCase() !== 'pendiente') throw new Error('La tanda no está pendiente');
+  const row = i + 2;
+  const ahora = new Date();
+  shParc.getRange(row, cI('listo_por')).setValue(listo ? usuario : '');
+  shParc.getRange(row, cI('fecha_listo')).setValue(listo ? ahora : '');
+  SpreadsheetApp.flush();
+
+  if (listo) {
+    try {
+      const idPedido = String(rows[i][cI('id_pedido') - 1]);
+      const ped = readSheet(SH_PEDIDOS).find(p => String(p.id) === idPedido) || {};
+      const prod = {}; PRODUCTOS.forEach(k => { prod[k] = Number(rows[i][cI(k) - 1]) || 0; });
+      notificarAppIngeco_('PAVIMAX', {
+        destinatarios: [{ con_modulo: 'PAVIMAX' }, { admin: true }], tipo: 'aviso_general', prioridad: 'normal',
+        titulo: 'Pallet listo · pedido #' + idPedido + ' · ' + (ped.cliente || ''),
+        cuerpo: 'Tanda del ' + fmtDate_(rows[i][cI('fecha_planeada') - 1]) + ' lista para entregar. Marcó: ' + usuario + '. ' + productosTexto_(prod),
+        url_destino: 'https://marcoskatz-cmd.github.io/pavimax/cargar.html', clave_unica: 'listo-' + idParc + '-' + ahora.getTime()
+      });
+    } catch (e) { console.warn('aviso listo: ' + e); }
+  }
+  return { id_parcial: idParc, listo, listo_por: listo ? usuario : '', fecha_listo: listo ? fmt(ahora) : '' };
+}
+
+function productosTexto_(prod) {
+  const nombres = { bolsas_25kg: 'bolsas 25kg', bigbag_1000kg: 'big bag', emul_1l: 'emulsión 1L', emul_5l: 'emulsión 5L', emul_20l: 'emulsión 20L' };
+  return PRODUCTOS.filter(k => prod[k]).map(k => prod[k] + ' ' + nombres[k]).join(' + ');
+}
+
 function agregarTandas_(sh, filas) {
+  if (filas.length) ensureParcCols_(sh);
   if (filas.length) sh.getRange(sh.getLastRow() + 1, 1, filas.length, filas[0].length).setValues(filas);
 }
 
@@ -760,6 +841,7 @@ function actualizarFechaEntrega(body) {
   if (filas.length > 1) throw new Error('El pedido tiene varias parciales — usá editarParciales');
 
   shParc.getRange(filas[0], cFechaP).setValue(fecha);
+  limpiarListo_(shParc, [filas[0]]);   // reprogramada: deja de estar "lista", el stock queda solo comprometido
   return { id, fecha_entrega: fechaStr };
 }
 
@@ -1084,6 +1166,24 @@ function sumVendidoPorProducto_() {   // { producto: cantidad } entregada
   parciales.forEach(p => PRODUCTOS.forEach(k => { out[k] += Number(p[k]) || 0; }));
   return out;
 }
+// Stock comprometido por tandas pendientes (desde que se carga el pedido) y, de eso,
+// lo que el operario ya marcó "listo" (físicamente en el pallet).
+function sumComprometidoPorProducto_() {
+  const out = {};
+  PRODUCTOS.forEach(k => { out[k] = { comprometido: 0, en_pallet: 0 }; });
+  readSheet(SH_PARCIALES)
+    .filter(p => String(p.estado || '').toLowerCase() === 'pendiente')
+    .forEach(p => {
+      const listo = !!String(p.listo_por || '').trim();
+      PRODUCTOS.forEach(k => {
+        const n = Number(p[k]) || 0;
+        out[k].comprometido += n;
+        if (listo) out[k].en_pallet += n;
+      });
+    });
+  return out;
+}
+
 function sumProducidoPorEnvase_() {   // { bolsas_25kg, bigbag_1000kg } producidos
   const out = { bolsas_25kg: 0, bigbag_1000kg: 0 };
   const v = sheetValues_(SH_PRODUCCION);
@@ -1545,10 +1645,11 @@ function applyFormatting_() {
 
   // ENTREGAS_PARCIALES
   // PARC_HEADERS: 1 id_parcial, 2 id_pedido, 3 fecha_planeada, 4-8 productos (bolsas_25kg..emul_20l),
-  // 9 estado, 10 fecha_entrega, 11 observacion_entrega, 12 link_remito, 13 usuario_entrega
+  // 9 estado, 10 fecha_entrega, 11 observacion_entrega, 12 link_remito, 13 usuario_entrega,
+  // 14 listo_por, 15 fecha_listo
   const parc = ss.getSheetByName(SH_PARCIALES);
   if (parc) {
-    const widths = [80, 80, 130, 110, 120, 90, 90, 90, 110, 130, 200, 200, 150];
+    const widths = [80, 80, 130, 110, 120, 90, 90, 90, 110, 130, 200, 200, 150, 150, 130];
     formatList_(parc, {
       cols: PARC_HEADERS.length, widths,
       headerHeight: 36, rowHeight: 26,
