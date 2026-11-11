@@ -29,11 +29,13 @@ const HORIZONTE_DIAS           = 14;   // ventana hacia adelante para calcular c
 const USUARIOS_SEED            = ['Julia Katz', 'Agustin De Gregorio', 'Gerardo Guerrero'];
 
 // === PRODUCTOS (multi-producto: material en kg, emulsión en botellas sin stock/producción) ===
-const PRODUCTOS = ['bolsas_25kg', 'bigbag_1000kg', 'emul_1l', 'emul_5l', 'emul_20l'];
-const KG_POR = { bolsas_25kg: 25, bigbag_1000kg: 1000, emul_1l: 0, emul_5l: 0, emul_20l: 0 };
+// granel_tn = material suelto a granel, en toneladas enteras (1 tn = 1000 kg). No se embolsa:
+// no usa capacidad de embolsado ni stock de envases, igual que la emulsión.
+const PRODUCTOS = ['bolsas_25kg', 'bigbag_1000kg', 'granel_tn', 'emul_1l', 'emul_5l', 'emul_20l'];
+const KG_POR = { bolsas_25kg: 25, bigbag_1000kg: 1000, granel_tn: 1000, emul_1l: 0, emul_5l: 0, emul_20l: 0 };
 const PARC_HEADERS = [
   'id_parcial', 'id_pedido', 'fecha_planeada',
-  'bolsas_25kg', 'bigbag_1000kg', 'emul_1l', 'emul_5l', 'emul_20l',
+  'bolsas_25kg', 'bigbag_1000kg', 'granel_tn', 'emul_1l', 'emul_5l', 'emul_20l',
   'estado', 'fecha_entrega', 'observacion_entrega', 'link_remito', 'usuario_entrega',
   'listo_por', 'fecha_listo'   // "listo para entregar": quién armó el pallet y cuándo (se borra al reprogramar)
 ];
@@ -463,7 +465,7 @@ function getGanancias() {
 
   let costo = producidoEnv.bolsas_25kg   * (precios.bolsas_25kg   ? precios.bolsas_25kg.costo   : 0)
             + producidoEnv.bigbag_1000kg * (precios.bigbag_1000kg ? precios.bigbag_1000kg.costo : 0);
-  ['emul_1l', 'emul_5l', 'emul_20l'].forEach(k => { costo += vendido[k] * (precios[k] ? precios[k].costo : 0); });
+  ['granel_tn', 'emul_1l', 'emul_5l', 'emul_20l'].forEach(k => { costo += vendido[k] * (precios[k] ? precios[k].costo : 0); });
 
   const ganancia = ingresos - costo;
   const margen   = ingresos > 0 ? Math.round(ganancia / ingresos * 1000) / 10 : 0;
@@ -628,7 +630,7 @@ function marcarListo(body) {
 }
 
 function productosTexto_(prod) {
-  const nombres = { bolsas_25kg: 'bolsas 25kg', bigbag_1000kg: 'big bag', emul_1l: 'emulsión 1L', emul_5l: 'emulsión 5L', emul_20l: 'emulsión 20L' };
+  const nombres = { bolsas_25kg: 'bolsas 25kg', bigbag_1000kg: 'big bag', granel_tn: 'tn a granel', emul_1l: 'emulsión 1L', emul_5l: 'emulsión 5L', emul_20l: 'emulsión 20L' };
   return PRODUCTOS.filter(k => prod[k]).map(k => prod[k] + ' ' + nombres[k]).join(' + ');
 }
 
@@ -1144,7 +1146,7 @@ function onEdit(e) {
 
 // === HELPERS ===
 function materialKg_(obj) {
-  return (Number(obj.bolsas_25kg) || 0) * 25 + (Number(obj.bigbag_1000kg) || 0) * 1000;
+  return (Number(obj.bolsas_25kg) || 0) * 25 + (Number(obj.bigbag_1000kg) || 0) * 1000 + (Number(obj.granel_tn) || 0) * 1000;
 }
 
 function sumProducido_() {           // kg producidos
@@ -1381,7 +1383,7 @@ function initSheets() {
         o.id_pedido           = r[idx('id_pedido')];
         o.fecha_planeada      = r[idx('fecha_planeada')];
         o.bolsas_25kg         = Number(r[idx('cantidad_planeada')]) || 0;
-        o.bigbag_1000kg = o.emul_1l = o.emul_5l = o.emul_20l = 0;
+        o.bigbag_1000kg = o.granel_tn = o.emul_1l = o.emul_5l = o.emul_20l = 0;
         o.estado              = r[idx('estado')];
         o.fecha_entrega       = idx('fecha_entrega')      >= 0 ? r[idx('fecha_entrega')]      : '';
         o.observacion_entrega = idx('observacion_entrega')>= 0 ? r[idx('observacion_entrega')]: '';
@@ -1426,6 +1428,7 @@ function initSheets() {
     ['producto', 'unidad', 'costo', 'precio'],
     ['bolsas_25kg',   'bolsa (25kg)',     0, 0],
     ['bigbag_1000kg', 'big bag (1000kg)', 0, 0],
+    ['granel_tn',     'tonelada a granel', 0, 0],
     ['emul_1l',       'botella 1L',       0, 0],
     ['emul_5l',       'botella 5L',       0, 0],
     ['emul_20l',      'botella 20L',      0, 0]
@@ -1441,6 +1444,10 @@ function initSheets() {
     const rows = PROD_ROWS.map(r => r.slice());
     rows[1][2] = costoBolsa; rows[1][3] = precioBolsa;  // fila bolsas_25kg
     prod.getRange(1, 1, rows.length, 4).setValues(rows);
+  } else {
+    // Idempotente: agregar filas de productos nuevos (ej. granel_tn) sin tocar costos/precios cargados.
+    const existentes = prod.getRange(2, 1, Math.max(prod.getLastRow() - 1, 1), 1).getValues().map(r => String(r[0]).trim());
+    PROD_ROWS.slice(1).forEach(r => { if (existentes.indexOf(r[0]) === -1) prod.appendRow(r); });
   }
 
   // --- GANANCIAS ---

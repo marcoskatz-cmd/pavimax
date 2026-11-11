@@ -853,6 +853,7 @@ function productosLabel(obj) {
   const items = [];
   if (Number(obj.bolsas_25kg))   items.push(`${fmtNum(obj.bolsas_25kg)}×25kg`);
   if (Number(obj.bigbag_1000kg)) items.push(`${fmtNum(obj.bigbag_1000kg)} big bag`);
+  if (Number(obj.granel_tn))     items.push(`${fmtNum(obj.granel_tn)} tn a granel`);
   if (Number(obj.emul_1l))       items.push(`${fmtNum(obj.emul_1l)}×1L emulsión`);
   if (Number(obj.emul_5l))       items.push(`${fmtNum(obj.emul_5l)}×5L emulsión`);
   if (Number(obj.emul_20l))      items.push(`${fmtNum(obj.emul_20l)}×20L emulsión`);
@@ -862,6 +863,7 @@ function productosChips(obj) {
   const items = [];
   if (Number(obj.bolsas_25kg))   items.push(`${fmtNum(obj.bolsas_25kg)} × 25kg`);
   if (Number(obj.bigbag_1000kg)) items.push(`${fmtNum(obj.bigbag_1000kg)} big bag`);
+  if (Number(obj.granel_tn))     items.push(`${fmtNum(obj.granel_tn)} tn a granel`);
   if (Number(obj.emul_1l))       items.push(`${fmtNum(obj.emul_1l)} × 1L emulsión`);
   if (Number(obj.emul_5l))       items.push(`${fmtNum(obj.emul_5l)} × 5L emulsión`);
   if (Number(obj.emul_20l))      items.push(`${fmtNum(obj.emul_20l)} × 20L emulsión`);
@@ -971,7 +973,7 @@ function cardEntregado(x) {
   const el = document.createElement('div');
   el.className = 'entregado';
   const entregas = x.entregas || [];
-  const totales = { bolsas_25kg: 0, bigbag_1000kg: 0, emul_1l: 0, emul_5l: 0, emul_20l: 0 };
+  const totales = { bolsas_25kg: 0, bigbag_1000kg: 0, granel_tn: 0, emul_1l: 0, emul_5l: 0, emul_20l: 0 };
   entregas.forEach(en => {
     Object.keys(totales).forEach(k => { totales[k] += Number(en[k]) || 0; });
   });
@@ -1214,11 +1216,11 @@ async function desmarcarListo(p, pp) {
 }
 
 /* ===== ETIQUETA PALLET (imprimir / guardar PDF) ===== */
-const NOMBRES_PROD = { bolsas_25kg: 'Bolsas 25 kg', bigbag_1000kg: 'Big bag 1000 kg', emul_1l: 'Emulsión 1 L', emul_5l: 'Emulsión 5 L', emul_20l: 'Emulsión 20 L' };
+const NOMBRES_PROD = { bolsas_25kg: 'Bolsas 25 kg', bigbag_1000kg: 'Big bag 1000 kg', granel_tn: 'Tn a granel', emul_1l: 'Emulsión 1 L', emul_5l: 'Emulsión 5 L', emul_20l: 'Emulsión 20 L' };
 function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 const BOLSAS_POR_PALLET = 60;   // un pallet carga hasta 60 bolsas de 25 kg
 
-/** Arma la lista de pallets de una tanda: bolsas de a 60, cada big bag en su pallet, la emulsión en uno aparte. */
+/** Arma la lista de pallets de una tanda: bolsas de a 60, cada big bag en su pallet, el granel en una etiqueta sola (va suelto, sin pallet), la emulsión en uno aparte. */
 function palletsDeTanda(pp) {
   const out = [];
   const bolsas = Number(pp.bolsas_25kg) || 0;
@@ -1227,6 +1229,8 @@ function palletsDeTanda(pp) {
   }
   const bigbag = Number(pp.bigbag_1000kg) || 0;
   for (let i = 0; i < bigbag; i++) out.push({ tipo: 'bigbag', cant: 1, nombre: 'Big bag 1000 kg' });
+  const granel = Number(pp.granel_tn) || 0;
+  if (granel > 0) out.push({ tipo: 'granel', cant: granel, nombre: 'Tn a granel' });
   const emul = ['emul_1l', 'emul_5l', 'emul_20l'].filter(k => Number(pp[k]) > 0);
   if (emul.length) out.push({ tipo: 'emul', cant: 0, nombre: 'Emulsión', detalle: emul.map(k => `${fmtNum(pp[k])} × ${NOMBRES_PROD[k]}`) });
   return out;
@@ -1248,6 +1252,8 @@ function imprimirEtiqueta(p, pp) {
       contenido = `<div class="big">${fmtNum(pl.cant)}<small>bolsas en este pallet</small></div>`;
     } else if (pl.tipo === 'bigbag') {
       contenido = `<div class="big">1<small>big bag 1000 kg</small></div>`;
+    } else if (pl.tipo === 'granel') {
+      contenido = `<div class="big">${fmtNum(pl.cant)}<small>tn a granel (carga suelta, sin pallet)</small></div>`;
     } else {
       contenido = `<div class="big" style="font-size:34pt">${pl.detalle.map(esc).join('<br>')}<small>emulsión asfáltica</small></div>`;
     }

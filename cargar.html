@@ -187,7 +187,7 @@
     display: flex; align-items: center; justify-content: center;
   }
   .parcial-products {
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;
   }
   .parcial-products label {
     font-size: 10px; color: var(--muted); font-weight: 600;
@@ -562,10 +562,17 @@ const CONFIG = {
 const PRODUCTS = [
   { key: 'bolsas_25kg',   label: '25kg' },
   { key: 'bigbag_1000kg', label: 'Big bag' },
+  { key: 'granel_tn',     label: 'Granel (tn)', step: 1 },
   { key: 'emul_1l',       label: 'Emulsión 1L' },
   { key: 'emul_5l',       label: '5L' },
   { key: 'emul_20l',      label: '20L' }
 ];
+
+// Cantidades: todas enteras y no negativas (el granel va de a 1 tn).
+function normalizarCant(key, v) {
+  const n = Math.max(0, Math.round(Number(v) || 0));
+  return n;
+}
 
 function emptyTanda(fecha) {
   const t = { fecha: fecha || '' };
@@ -689,7 +696,7 @@ function addProducts(a, b) {
   return t;
 }
 function materialKg(totals) {
-  return (Number(totals.bolsas_25kg) || 0) * 25 + (Number(totals.bigbag_1000kg) || 0) * 1000;
+  return (Number(totals.bolsas_25kg) || 0) * 25 + (Number(totals.bigbag_1000kg) || 0) * 1000 + (Number(totals.granel_tn) || 0) * 1000;
 }
 function bolsasDe(totals) {
   // La capacidad la limita el embolsado → solo cuentan las bolsas de 25kg.
@@ -872,6 +879,7 @@ function productChipsHtml(totals) {
   const kg = materialKg(totals);
   const parts = [];
   if (kg > 0) parts.push(`<div>${fmtNum(kg)} <small>kg material</small></div>`);
+  if (Number(totals.granel_tn) > 0) parts.push(`<div><small>${fmtNum(totals.granel_tn)} tn a granel</small></div>`);
   const emul = [];
   if (Number(totals.emul_1l) > 0) emul.push(`${fmtNum(totals.emul_1l)}×1L`);
   if (Number(totals.emul_5l) > 0) emul.push(`${fmtNum(totals.emul_5l)}×5L`);
@@ -978,7 +986,7 @@ function renderParcialesForm() {
     row.className = 'parcial-row';
     const prodInputs = PRODUCTS.map(pr => `
       <label>${pr.label}
-        <input type="number" data-i="${idx}" data-k="${pr.key}" min="0" placeholder="0" value="${p[pr.key] === '' || p[pr.key] == null ? '' : p[pr.key]}">
+        <input type="number" data-i="${idx}" data-k="${pr.key}" min="0" step="${pr.step || 1}" inputmode="numeric" placeholder="0" value="${p[pr.key] === '' || p[pr.key] == null ? '' : p[pr.key]}">
       </label>
     `).join('');
     row.innerHTML = `
@@ -994,7 +1002,7 @@ function renderParcialesForm() {
     inp.addEventListener('input', (e) => {
       const i = Number(e.target.dataset.i);
       const k = e.target.dataset.k;
-      state.parcialesForm[i][k] = k === 'fecha' ? e.target.value : (e.target.value === '' ? '' : Number(e.target.value));
+      state.parcialesForm[i][k] = k === 'fecha' ? e.target.value : (e.target.value === '' ? '' : normalizarCant(k, e.target.value));
       updateFeedback();
       renderPreciosForm();
     });
@@ -1031,10 +1039,11 @@ function updateFeedback() {
   if (Number(totals.emul_5l) > 0) emulParts.push(`${fmtNum(totals.emul_5l)}×5L`);
   if (Number(totals.emul_20l) > 0) emulParts.push(`${fmtNum(totals.emul_20l)}×20L`);
   const resumen = `Material: <strong>${fmtNum(kg)} kg</strong>` +
+    (Number(totals.granel_tn) > 0 ? ` (incluye ${fmtNum(totals.granel_tn)} tn a granel)` : '') +
     (emulParts.length ? ` · Emulsión: <strong>${emulParts.join(', ')}</strong>` : '');
 
   // Chequeo de capacidad diaria: la capacidad la limita el EMBOLSADO, así que
-  // comparamos SOLO las bolsas de 25kg por tanda (big bag y emulsión no cuentan).
+  // comparamos SOLO las bolsas de 25kg por tanda (big bag, granel y emulsión no cuentan).
   const cap = state.capacidad && state.capacidad.horizonte;
   const parciales = state.parcialesForm
     .filter(p => p.fecha && bolsasDe(p) > 0)
@@ -1074,7 +1083,7 @@ function updateFeedback() {
 
 /* ===== PRECIO DE VENTA ===== */
 // var (no const): renderParcialesForm() corre en el arranque, antes de llegar a esta línea.
-var PRECIO_LABEL = { bolsas_25kg: 'Bolsa 25kg', bigbag_1000kg: 'Big bag 1000kg', emul_1l: 'Emulsión 1L', emul_5l: 'Emulsión 5L', emul_20l: 'Emulsión 20L' };
+var PRECIO_LABEL = { bolsas_25kg: 'Bolsa 25kg', bigbag_1000kg: 'Big bag 1000kg', granel_tn: 'Granel (por tn)', emul_1l: 'Emulsión 1L', emul_5l: 'Emulsión 5L', emul_20l: 'Emulsión 20L' };
 function fmtPesos(n) { return '$ ' + Math.round(n).toLocaleString('es-AR'); }
 function totalVenta(cant, precios) { return PRODUCTS.reduce((s, pr) => s + (Number(cant[pr.key]) || 0) * (Number(precios[pr.key]) || 0), 0); }
 function cantForm() {
@@ -1317,7 +1326,7 @@ function renderEditParciales() {
     row.className = 'parcial-row';
     const prodInputs = PRODUCTS.map(pr => `
       <label>${pr.label}
-        <input type="number" data-i="${idx}" data-k="${pr.key}" min="0" placeholder="0" value="${p[pr.key] === '' || p[pr.key] == null ? '' : p[pr.key]}">
+        <input type="number" data-i="${idx}" data-k="${pr.key}" min="0" step="${pr.step || 1}" inputmode="numeric" placeholder="0" value="${p[pr.key] === '' || p[pr.key] == null ? '' : p[pr.key]}">
       </label>
     `).join('');
     row.innerHTML = `
@@ -1333,7 +1342,7 @@ function renderEditParciales() {
     inp.addEventListener('input', (e) => {
       const i = Number(e.target.dataset.i);
       const k = e.target.dataset.k;
-      state.editParciales[i][k] = k === 'fecha' ? e.target.value : (e.target.value === '' ? '' : Number(e.target.value));
+      state.editParciales[i][k] = k === 'fecha' ? e.target.value : (e.target.value === '' ? '' : normalizarCant(k, e.target.value));
       updateEditParcialSuma();
       updateEditFeedback();
     });
