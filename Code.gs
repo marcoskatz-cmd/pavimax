@@ -105,6 +105,7 @@ function doGet(e) {
     else if (action === 'clientes')        data = { clientes: getClientes() };
     else if (action === 'usuarios')        data = { usuarios: getUsuarios() };
     else if (action === 'capacidadDiaria') data = { capacidad_diaria: getCapacidadDiaria() };
+    else if (action === 'reparar')         data = { reparacion: repararTandasCorridas() };
     else                                   data = getAll();
     _memoOn = false;
     try { flushWrites_(); } catch (e2) { /* la planilla es solo espejo; no romper la respuesta */ }
@@ -564,7 +565,7 @@ function entregarPedido(body) {
   return { id_parcial: idParc, id_pedido: idPedido, estado, link_remito: linkRemito };
 }
 
-/** Agrega todas las tandas en una sola escritura (appendRow por fila era un viaje por tanda). */
+
 /** Garantiza que ENTREGAS_PARCIALES tenga todas las columnas de PARC_HEADERS (agrega las que falten al final). */
 function ensureParcCols_(shParc) {
   let headers = shParc.getRange(1, 1, 1, shParc.getLastColumn()).getValues()[0].map(normalizeHeader_);
@@ -634,9 +635,55 @@ function productosTexto_(prod) {
   return PRODUCTOS.filter(k => prod[k]).map(k => prod[k] + ' ' + nombres[k]).join(' + ');
 }
 
-function agregarTandas_(sh, filas) {
-  if (filas.length) ensureParcCols_(sh);
-  if (filas.length) sh.getRange(sh.getLastRow() + 1, 1, filas.length, filas[0].length).setValues(filas);
+/**
+ * Agrega todas las tandas en una sola escritura (appendRow por fila era un viaje por tanda).
+ * Recibe OBJETOS {id_parcial, id_pedido, fecha_planeada, bolsas_25kg, ..., estado} y arma cada
+ * fila según el orden REAL de columnas de la hoja (el que devuelve ensureParcCols_), no según
+ * PARC_HEADERS: cuando se agregó granel_tn la hoja ya existía y la columna quedó al final, así
+ * que escribir en el orden de PARC_HEADERS corría todo un lugar y "pendiente" caía en
+ * fecha_entrega — el pedido no aparecía ni en pendientes ni en entregados.
+ */
+function agregarTandas_(sh, tandas) {
+  if (!tandas.length) return;
+  const headers = ensureParcCols_(sh);
+  const filas = tandas.map(o => headers.map(h => o[h] !== undefined ? o[h] : ''));
+  sh.getRange(sh.getLastRow() + 1, 1, filas.length, headers.length).setValues(filas);
+}
+
+/**
+ * Repara las tandas que se escribieron corridas (ver agregarTandas_): detecta filas cuyo
+ * "estado" no es pendiente/entregada pero que tienen "pendiente"/"entregada" en la posición
+ * que PARC_HEADERS le da a estado, y las vuelve a ubicar columna por columna. Idempotente.
+ * Se puede ejecutar desde el editor o con GET ?action=reparar. Devuelve cuántas filas arregló.
+ */
+function repararTandasCorridas() {
+  const ss = ss_();
+  const shParc = ss.getSheetByName(SH_PARCIALES);
+  if (!shParc) throw new Error('Falta hoja ENTREGAS_PARCIALES');
+  const headers = ensureParcCols_(shParc);
+  const cEstado = headers.indexOf('estado');
+  const cEstadoCanon = PARC_HEADERS.indexOf('estado');
+  const esEstado = v => /^(pendiente|entregada)$/i.test(String(v || '').trim());
+  const last = shParc.getLastRow();
+  const rows = last >= 2 ? shParc.getRange(2, 1, last - 1, headers.length).getValues() : [];
+  const arregladas = [];
+  rows.forEach((r, i) => {
+    if (esEstado(r[cEstado]) || !esEstado(r[cEstadoCanon])) return;  // fila sana o no reconocible
+    const o = {};
+    PARC_HEADERS.forEach((h, j) => { o[h] = r[j]; });
+    const fila = headers.map(h => o[h] !== undefined ? o[h] : '');
+    shParc.getRange(i + 2, 1, 1, headers.length).setValues([fila]);
+    arregladas.push({ fila: i + 2, id_parcial: o.id_parcial, id_pedido: o.id_pedido });
+  });
+  // Fila de producto que falta en PRODUCTO (sin pisar costos/precios cargados)
+  const prodSh = ss.getSheetByName(SH_PRODUCTO);
+  if (prodSh && String(prodSh.getRange('A1').getValue()).trim().toLowerCase() === 'producto') {
+    const existentes = prodSh.getRange(2, 1, Math.max(prodSh.getLastRow() - 1, 1), 1).getValues().map(x => String(x[0]).trim());
+    if (existentes.indexOf('granel_tn') === -1) prodSh.appendRow(['granel_tn', 'tonelada a granel', 0, 0]);
+  }
+  SpreadsheetApp.flush();
+  console.log('Tandas reparadas: ' + arregladas.length + ' ' + JSON.stringify(arregladas));
+  return { reparadas: arregladas.length, filas: arregladas };
 }
 
 function registrarProduccion(body) {
@@ -711,7 +758,7 @@ function cargarPedido(body) {
   agregarTandas_(shParc, parsed.map((p, idx) => {
     const o = { id_parcial: maxIdParc + 1 + idx, id_pedido: id, fecha_planeada: p.fecha || '', estado: 'pendiente' };
     PRODUCTOS.forEach(k => { o[k] = p.prod[k]; });
-    return PARC_HEADERS.map(h => o[h] !== undefined ? o[h] : '');
+    return o;
   }));
   // Aviso por la app INGECO a planta (operario) y admins.
   try {
@@ -1019,7 +1066,7 @@ function reemplazarPendientes_(body, opts) {
   agregarTandas_(shParc, parsed.map((p, idx) => {
     const o = { id_parcial: maxIdParc + 1 + idx, id_pedido: id, fecha_planeada: p.fecha || '', estado: 'pendiente' };
     PRODUCTOS.forEach(k => { o[k] = p.prod[k]; });
-    return PARC_HEADERS.map(h => o[h] !== undefined ? o[h] : '');
+    return o;
   }));
 
   SpreadsheetApp.flush();
@@ -1395,7 +1442,10 @@ function initSheets() {
       parc.appendRow(PARC_HEADERS);
       if (migrated.length) parc.getRange(2, 1, migrated.length, PARC_HEADERS.length).setValues(migrated);
     } else {
-      parc.getRange(1, 1, 1, PARC_HEADERS.length).setValues([PARC_HEADERS]);
+      // NO reescribir el encabezado en el orden de PARC_HEADERS: si la hoja tiene las columnas
+      // en otro orden (granel_tn agregada al final) eso desalinea todos los datos cargados.
+      // Solo agregar las columnas que falten, al final.
+      ensureParcCols_(parc);
     }
     migrarPedidosAParciales_(ss);
   }
@@ -1650,25 +1700,28 @@ function applyFormatting_() {
     if (colCant > 0) ped.getRange(2, colCant, ped.getMaxRows() - 1, 1).setHorizontalAlignment('right');
   }
 
-  // ENTREGAS_PARCIALES
-  // PARC_HEADERS: 1 id_parcial, 2 id_pedido, 3 fecha_planeada, 4-8 productos (bolsas_25kg..emul_20l),
-  // 9 estado, 10 fecha_entrega, 11 observacion_entrega, 12 link_remito, 13 usuario_entrega,
-  // 14 listo_por, 15 fecha_listo
+  // ENTREGAS_PARCIALES — las posiciones salen del encabezado real de la hoja (el orden puede
+  // no ser el de PARC_HEADERS, ej. granel_tn agregada al final).
   const parc = ss.getSheetByName(SH_PARCIALES);
   if (parc) {
-    const widths = [80, 80, 130, 110, 120, 90, 90, 90, 110, 130, 200, 200, 150, 150, 130];
+    const ph = parc.getRange(1, 1, 1, parc.getLastColumn()).getValues()[0].map(normalizeHeader_);
+    const pc = n => ph.indexOf(n) + 1;
+    const anchoDe = { id_parcial: 80, id_pedido: 80, fecha_planeada: 130, bolsas_25kg: 110, bigbag_1000kg: 120,
+      granel_tn: 90, emul_1l: 90, emul_5l: 90, emul_20l: 90, estado: 110, fecha_entrega: 130,
+      observacion_entrega: 200, link_remito: 200, usuario_entrega: 150, listo_por: 150, fecha_listo: 130 };
+    const widths = ph.map(h => anchoDe[h] || 120);
     formatList_(parc, {
-      cols: PARC_HEADERS.length, widths,
+      cols: ph.length, widths,
       headerHeight: 36, rowHeight: 26,
-      numberCols: [4, 5, 6, 7, 8],
-      dateCols: [3, 10]
+      numberCols: PRODUCTOS.map(pc).filter(c => c > 0),
+      dateCols: [pc('fecha_planeada'), pc('fecha_entrega')].filter(c => c > 0)
     });
-    parc.getRange(2, 3, parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy');
-    parc.getRange(2, 10, parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy HH:mm');
-    parc.getRange(2, 1, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
-    parc.getRange(2, 2, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
-    parc.getRange(2, 9, parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
-    const estR = parc.getRange(2, 9, parc.getMaxRows() - 1, 1);
+    if (pc('fecha_planeada') > 0) parc.getRange(2, pc('fecha_planeada'), parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy');
+    if (pc('fecha_entrega') > 0)  parc.getRange(2, pc('fecha_entrega'),  parc.getMaxRows() - 1, 1).setNumberFormat('dd/mm/yyyy HH:mm');
+    if (pc('id_parcial') > 0) parc.getRange(2, pc('id_parcial'), parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
+    if (pc('id_pedido') > 0)  parc.getRange(2, pc('id_pedido'),  parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
+    if (pc('estado') > 0)     parc.getRange(2, pc('estado'),     parc.getMaxRows() - 1, 1).setHorizontalAlignment('center');
+    const estR = parc.getRange(2, pc('estado') > 0 ? pc('estado') : 9, parc.getMaxRows() - 1, 1);
     const rulePend = SpreadsheetApp.newConditionalFormatRule()
       .whenTextEqualTo('pendiente')
       .setBackground(COLOR_PEND_BG).setFontColor(COLOR_PEND_TXT).setBold(true)
