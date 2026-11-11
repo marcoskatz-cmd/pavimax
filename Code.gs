@@ -29,8 +29,9 @@ const HORIZONTE_DIAS           = 14;   // ventana hacia adelante para calcular c
 const USUARIOS_SEED            = ['Julia Katz', 'Agustin De Gregorio', 'Gerardo Guerrero'];
 
 // === PRODUCTOS (multi-producto: material en kg, emulsión en botellas sin stock/producción) ===
-// granel_tn = material suelto a granel, en toneladas enteras (1 tn = 1000 kg). No se embolsa:
-// no usa capacidad de embolsado ni stock de envases, igual que la emulsión.
+// granel_tn = material suelto a granel, en toneladas (1 tn = 1000 kg). No se embolsa: no usa capacidad
+// de embolsado. Tiene su PROPIO stock en tn (fila 4 de STOCK), separado del de bolsas/big bag, que se
+// carga desde Producción (operario) y se descuenta al entregar.
 const PRODUCTOS = ['bolsas_25kg', 'bigbag_1000kg', 'granel_tn', 'emul_1l', 'emul_5l', 'emul_20l'];
 const KG_POR = { bolsas_25kg: 25, bigbag_1000kg: 1000, granel_tn: 1000, emul_1l: 0, emul_5l: 0, emul_20l: 0 };
 const PARC_HEADERS = [
@@ -175,16 +176,25 @@ function getProduccion() {
   const ss = ss_();
   const sh = ss.getSheetByName(SH_PRODUCCION);
   if (!sh || sh.getLastRow() < 2) return [];
-  const values = sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(sh.getLastColumn(), 4)).getValues();
-  return values
-    .filter(row => row[0])
-    .map(([fecha, bolsas, bigbag, kg]) => ({
-      fecha: fmt(fecha),
-      _ts: fecha instanceof Date ? fecha.getTime() : 0,
-      bolsas_25kg: Number(bolsas) || 0,
-      bigbag_1000kg: Number(bigbag) || 0,
-      kg_total: Number(kg) || 0
-    }))
+  const all = sheetValues_(SH_PRODUCCION);
+  const h = all[0].map(x => String(x).trim());
+  const iF = h.indexOf('fecha'), iB = h.indexOf('bolsas_25kg'), iG = h.indexOf('bigbag_1000kg'),
+        iT = h.indexOf('granel_tn'), iK = h.indexOf('kg_total'), iO = h.indexOf('operario');
+  const col = (r, i) => (i >= 0 ? r[i] : '');
+  return all.slice(1)
+    .filter(row => col(row, iF))
+    .map(row => {
+      const fecha = col(row, iF);
+      return {
+        fecha: fmt(fecha),
+        _ts: fecha instanceof Date ? fecha.getTime() : 0,
+        bolsas_25kg: Number(col(row, iB)) || 0,
+        bigbag_1000kg: Number(col(row, iG)) || 0,
+        granel_tn: Number(col(row, iT)) || 0,
+        kg_total: Number(col(row, iK)) || 0,
+        operario: String(col(row, iO) || '')
+      };
+    })
     .sort((a, b) => b._ts - a._ts)
     .slice(0, 5)
     .map(r => { delete r._ts; return r; });
@@ -393,7 +403,8 @@ function subirFactura(body) {
 
 // STOCK layout (tabla por producto, en UNIDADES):
 //   row 1 = header: Producto | Inicial | Producido | Vendido | Actual
-//   row 2 = bolsas_25kg, row 3 = bigbag_1000kg
+//   row 2 = bolsas_25kg, row 3 = bigbag_1000kg, row 4 = granel_tn (toneladas de material suelto)
+// El granel es un stock APARTE del de bolsas/big bag: material sin embolsar que se vende suelto.
 // Inicial (col B) lo edita Marcos; Producido/Vendido/Actual (C/D/E) se reescriben acá.
 function getStock() {
   const ss = ss_();
@@ -402,8 +413,11 @@ function getStock() {
 
   const iniBolsas = Number(stockSh.getRange('B2').getValue()) || 0;
   const iniBigbag = Number(stockSh.getRange('B3').getValue()) || 0;
+  // Fila 4 (granel) se crea sola la primera vez, sin tener que correr initSheets().
+  if (String(stockSh.getRange('A4').getValue()).trim() === '') stockSh.getRange('A4:B4').setValues([['Granel (tn)', 0]]);
+  const iniGranel = Number(stockSh.getRange('B4').getValue()) || 0;
 
-  const producido = sumProducidoPorEnvase_();   // { bolsas_25kg, bigbag_1000kg }
+  const producido = sumProducidoPorEnvase_();   // { bolsas_25kg, bigbag_1000kg, granel_tn }
   const vendido   = sumVendidoPorProducto_();    // { producto: unidades }
   const comp      = sumComprometidoPorProducto_(); // { producto: { comprometido, en_pallet } } (tandas pendientes)
 
@@ -425,13 +439,23 @@ function getStock() {
   bigbag.comprometido = comp.bigbag_1000kg.comprometido;
   bigbag.en_pallet    = comp.bigbag_1000kg.en_pallet;
   bigbag.disponible   = bigbag.actual - bigbag.comprometido;
+  const granel = {
+    inicial:   iniGranel,
+    producido: producido.granel_tn,
+    vendido:   vendido.granel_tn || 0,
+    actual:    redondear_(iniGranel + producido.granel_tn - (vendido.granel_tn || 0))
+  };
+  granel.comprometido = comp.granel_tn.comprometido;
+  granel.en_pallet    = comp.granel_tn.en_pallet;
+  granel.disponible   = redondear_(granel.actual - granel.comprometido);
 
-  writeOrDefer_(stockSh.getRange('C2:E3'), [
+  writeOrDefer_(stockSh.getRange('C2:E4'), [
     [bolsas.producido, bolsas.vendido, bolsas.actual],
-    [bigbag.producido, bigbag.vendido, bigbag.actual]
+    [bigbag.producido, bigbag.vendido, bigbag.actual],
+    [granel.producido, granel.vendido, granel.actual]
   ]);
 
-  return { bolsas_25kg: bolsas, bigbag_1000kg: bigbag };
+  return { bolsas_25kg: bolsas, bigbag_1000kg: bigbag, granel_tn: granel };
 }
 
 // PRODUCTO layout: row 1 header (producto, unidad, costo, precio), rows 2-6 = 1 fila por producto
@@ -464,8 +488,9 @@ function getGanancias() {
   PRODUCTOS.forEach(k => { ingresos += vendido[k] * (precios[k] ? precios[k].precio : 0); });
 
   let costo = producidoEnv.bolsas_25kg   * (precios.bolsas_25kg   ? precios.bolsas_25kg.costo   : 0)
-            + producidoEnv.bigbag_1000kg * (precios.bigbag_1000kg ? precios.bigbag_1000kg.costo : 0);
-  ['granel_tn', 'emul_1l', 'emul_5l', 'emul_20l'].forEach(k => { costo += vendido[k] * (precios[k] ? precios[k].costo : 0); });
+            + producidoEnv.bigbag_1000kg * (precios.bigbag_1000kg ? precios.bigbag_1000kg.costo : 0)
+            + producidoEnv.granel_tn     * (precios.granel_tn     ? precios.granel_tn.costo     : 0);
+  ['emul_1l', 'emul_5l', 'emul_20l'].forEach(k => { costo += vendido[k] * (precios[k] ? precios[k].costo : 0); });
 
   const ganancia = ingresos - costo;
   const margen   = ingresos > 0 ? Math.round(ganancia / ingresos * 1000) / 10 : 0;
@@ -639,19 +664,50 @@ function agregarTandas_(sh, filas) {
   if (filas.length) sh.getRange(sh.getLastRow() + 1, 1, filas.length, filas[0].length).setValues(filas);
 }
 
+// Columnas de PRODUCCION. granel_tn va al final para no mover las columnas de planillas ya cargadas.
+const PROD_HEADERS = ['fecha', 'bolsas_25kg', 'bigbag_1000kg', 'kg_total', 'operario', 'granel_tn'];
+
+/** Agrega a PRODUCCION las columnas que falten (ej. granel_tn), sin mover las existentes. */
+function ensureProdCols_(sh) {
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  PROD_HEADERS.forEach(h => {
+    if (headers.indexOf(h) === -1) {
+      if (sh.getMaxColumns() < headers.length + 1) sh.insertColumnAfter(sh.getMaxColumns());
+      sh.getRange(1, headers.length + 1).setValue(h);
+      headers.push(h);
+    }
+  });
+  return headers;
+}
+
 function registrarProduccion(body) {
   const bolsas = Number(body.bolsas_25kg) || 0;
   const bigbag = Number(body.bigbag_1000kg) || 0;
+  const granel = redondear_(Number(body.granel_tn) || 0);   // toneladas de material suelto (admite decimales)
   const operario = String(body.operario || '').trim();
-  if (bolsas <= 0 && bigbag <= 0) throw new Error('Cargá al menos bolsas o big bag');
-  const kg = bolsas * 25 + bigbag * 1000;
+  if (bolsas < 0 || bigbag < 0 || granel < 0) throw new Error('Las cantidades no pueden ser negativas');
+  if (bolsas <= 0 && bigbag <= 0 && granel <= 0) throw new Error('Cargá al menos bolsas, big bag o granel');
+  const kg = bolsas * 25 + bigbag * 1000 + granel * 1000;
   const ss = ss_();
   const sh = ss.getSheetByName(SH_PRODUCCION);
   if (!sh) throw new Error('Falta hoja PRODUCCION');
-  sh.appendRow([new Date(), bolsas, bigbag, kg, operario]);
+  const headers = ensureProdCols_(sh);
+  const fila = headers.map(h => {
+    if (h === 'fecha') return new Date();
+    if (h === 'bolsas_25kg') return bolsas;
+    if (h === 'bigbag_1000kg') return bigbag;
+    if (h === 'granel_tn') return granel;
+    if (h === 'kg_total') return kg;
+    if (h === 'operario') return operario;
+    return '';
+  });
+  sh.getRange(sh.getLastRow() + 1, 1, 1, fila.length).setValues([fila]);
   try { avisarStockBajo_(); } catch (e) { console.warn('stock bajo: ' + e); }
-  return { fecha: new Date().toISOString(), bolsas_25kg: bolsas, bigbag_1000kg: bigbag, kg_total: kg };
+  return { fecha: new Date().toISOString(), bolsas_25kg: bolsas, bigbag_1000kg: bigbag, granel_tn: granel, kg_total: kg };
 }
+
+// Redondea a 2 decimales (evita 0.30000000000000004 en toneladas).
+function redondear_(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 
 /**
  * Cargar pedido con usuario que carga y parciales multi-producto.
@@ -1186,16 +1242,18 @@ function sumComprometidoPorProducto_() {
   return out;
 }
 
-function sumProducidoPorEnvase_() {   // { bolsas_25kg, bigbag_1000kg } producidos
-  const out = { bolsas_25kg: 0, bigbag_1000kg: 0 };
+function sumProducidoPorEnvase_() {   // { bolsas_25kg, bigbag_1000kg, granel_tn } producidos
+  const out = { bolsas_25kg: 0, bigbag_1000kg: 0, granel_tn: 0 };
   const v = sheetValues_(SH_PRODUCCION);
   if (!v || v.length < 2) return out;
   const h = v[0].map(x => String(x).trim());
-  const iB = h.indexOf('bolsas_25kg'), iG = h.indexOf('bigbag_1000kg');
+  const iB = h.indexOf('bolsas_25kg'), iG = h.indexOf('bigbag_1000kg'), iT = h.indexOf('granel_tn');
   v.slice(1).forEach(r => {
     out.bolsas_25kg   += Number(r[iB]) || 0;
     out.bigbag_1000kg += Number(r[iG]) || 0;
+    if (iT >= 0) out.granel_tn += Number(r[iT]) || 0;
   });
+  out.granel_tn = redondear_(out.granel_tn);
   return out;
 }
 
@@ -1294,7 +1352,6 @@ function initSheets() {
 
   // --- PRODUCCION ---
   let prodLog = ss.getSheetByName(SH_PRODUCCION);
-  const PROD_HEADERS = ['fecha', 'bolsas_25kg', 'bigbag_1000kg', 'kg_total', 'operario'];
   if (!prodLog) {
     prodLog = ss.insertSheet(SH_PRODUCCION);
     prodLog.appendRow(PROD_HEADERS);
@@ -1311,9 +1368,10 @@ function initSheets() {
         return [iF >= 0 ? r[iF] : '', bolsas, 0, bolsas * 25, iO >= 0 ? r[iO] : ''];
       });
       prodLog.clear();
-      prodLog.appendRow(PROD_HEADERS);
-      if (migrated.length) prodLog.getRange(2, 1, migrated.length, PROD_HEADERS.length).setValues(migrated);
+      prodLog.appendRow(PROD_HEADERS.slice(0, 5));
+      if (migrated.length) prodLog.getRange(2, 1, migrated.length, 5).setValues(migrated);
     }
+    ensureProdCols_(prodLog);   // agrega granel_tn al final si falta
   }
 
   // --- CLIENTES ---
@@ -1409,10 +1467,11 @@ function initSheets() {
   if (getConfigVal_(ss, 'stock_unidad') !== 'unidades') {
     // Reset a layout nuevo: iniciales en 0 (el viejo estaba en kg, no se reparte).
     stock.clear();
-    stock.getRange('A1:E3').setValues([
+    stock.getRange('A1:E4').setValues([
       STOCK_HEADER,
       ['Bolsas 25kg',    0, 0, 0, 0],
-      ['Big bag 1000kg', 0, 0, 0, 0]
+      ['Big bag 1000kg', 0, 0, 0, 0],
+      ['Granel (tn)',    0, 0, 0, 0]
     ]);
     setConfigVal_(ss, 'stock_unidad', 'unidades');
   } else {
@@ -1420,6 +1479,8 @@ function initSheets() {
     stock.getRange('A1:E1').setValues([STOCK_HEADER]);
     stock.getRange('A2').setValue('Bolsas 25kg');
     stock.getRange('A3').setValue('Big bag 1000kg');
+    stock.getRange('A4').setValue('Granel (tn)');
+    if (stock.getRange('B4').getValue() === '') stock.getRange('B4:E4').setValues([[0, 0, 0, 0]]);
   }
 
   // --- PRODUCTO ---
@@ -1684,12 +1745,13 @@ function applyFormatting_() {
   const prodLog = ss.getSheetByName(SH_PRODUCCION);
   if (prodLog) {
     formatList_(prodLog, {
-      cols: 5,
-      widths: [180, 130, 130, 130, 220],
+      cols: 6,
+      widths: [180, 130, 130, 130, 220, 130],
       headerHeight: 36, rowHeight: 28,
-      numberCols: [2, 3, 4], dateCols: [1]
+      numberCols: [2, 3, 4, 6], dateCols: [1]
     });
     prodLog.getRange(2, 2, prodLog.getMaxRows() - 1, 3).setHorizontalAlignment('right');
+    prodLog.getRange(2, 6, prodLog.getMaxRows() - 1, 1).setHorizontalAlignment('right');
   }
 
   // CLIENTES
@@ -1839,15 +1901,18 @@ function formatDashboard_(sh, opt) {
 }
 
 
-// Stock bajo de bolsas o big bags: aviso a admins, una vez por día. Umbral editable en STOCK!G2 (bolsas) y G3 (big bags); default 300 / 5.
+// Stock bajo de bolsas, big bags o granel: aviso a admins, una vez por día.
+// Umbral editable en STOCK!G2 (bolsas), G3 (big bags) y G4 (tn a granel); default 300 / 5 / 10.
 function avisarStockBajo_() {
   const st = getStock();
   const ss = ss_(); const sh = ss.getSheetByName(SH_STOCK);
-  const umbB = Number(sh.getRange('G2').getValue()) || 300, umbG = Number(sh.getRange('G3').getValue()) || 5;
+  const umbB = Number(sh.getRange('G2').getValue()) || 300, umbG = Number(sh.getRange('G3').getValue()) || 5,
+        umbT = Number(sh.getRange('G4').getValue()) || 10;
   const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
   const avisos = [];
-  if (st.bolsas && st.bolsas.actual <= umbB) avisos.push('Bolsas 25 kg: quedan ' + st.bolsas.actual + ' (umbral ' + umbB + ')');
-  if (st.bigbag && st.bigbag.actual <= umbG) avisos.push('Big bags: quedan ' + st.bigbag.actual + ' (umbral ' + umbG + ')');
+  if (st.bolsas_25kg   && st.bolsas_25kg.actual   <= umbB) avisos.push('Bolsas 25 kg: quedan ' + st.bolsas_25kg.actual + ' (umbral ' + umbB + ')');
+  if (st.bigbag_1000kg && st.bigbag_1000kg.actual <= umbG) avisos.push('Big bags: quedan ' + st.bigbag_1000kg.actual + ' (umbral ' + umbG + ')');
+  if (st.granel_tn     && st.granel_tn.actual     <= umbT) avisos.push('Granel: quedan ' + st.granel_tn.actual + ' tn (umbral ' + umbT + ')');
   if (!avisos.length) return;
   notificarAppIngeco_('PAVIMAX', {
     destinatarios: [{ con_modulo: 'PAVIMAX' }, { admin: true }], tipo: 'stock_critico', prioridad: 'critica',

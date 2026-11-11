@@ -443,7 +443,7 @@
       <div class="icon">🏭</div>
       <div class="label">
         <div class="title">Producción</div>
-        <div class="desc">Cargar bolsas producidas y ver stock</div>
+        <div class="desc">Cargar bolsas, big bag y granel producidos y ver stock</div>
       </div>
     </button>
 
@@ -451,7 +451,7 @@
       <div class="help-title">💡 Cómo usar</div>
       <ol>
         <li>Tocá <strong>Pedidos</strong> para ver lo pendiente. Cada pedido puede tener varias tandas (entregas planeadas); tocá <strong>ENTREGAR</strong>, elegí la tanda si hay más de una, elegí tu nombre, sacá foto del remito y tocá <strong>Confirmar entrega</strong>. Se entrega la tanda completa.</li>
-        <li>Cuando haya producción, andá a <strong>Producción</strong> y cargá cuántas bolsas de 25kg y/o big bag de 1000kg se hicieron.</li>
+        <li>Cuando haya producción, andá a <strong>Producción</strong> y cargá cuántas bolsas de 25kg, big bag de 1000kg y/o toneladas a granel se hicieron. El granel tiene su propio stock, aparte del de las bolsas.</li>
         <li>Los remitos de cada entrega quedan en cada pedido entregado — tocá <strong>Ver remito ↗</strong>.</li>
       </ol>
     </div>
@@ -490,6 +490,17 @@
       <div class="stock-row disp"><span>Disponible</span><span id="stockBigbagDisp">—</span></div>
     </div>
 
+    <div class="section-title">Stock — Granel (tn)</div>
+    <div class="stock-box">
+      <div class="stock-row"><span class="lbl">Inicial</span><span id="stockGranelIni">—</span></div>
+      <div class="stock-row"><span class="lbl">Producido</span><span id="stockGranelProd">—</span></div>
+      <div class="stock-row"><span class="lbl">Vendido</span><span id="stockGranelVen">—</span></div>
+      <div class="stock-row total"><span>Actual</span><span id="stockGranelAct">—</span></div>
+      <div class="stock-row"><span class="lbl">Comprometido (pedidos pendientes)</span><span id="stockGranelComp">—</span></div>
+      <div class="stock-row"><span class="lbl">De eso, ya listo para cargar</span><span id="stockGranelPal">—</span></div>
+      <div class="stock-row disp"><span>Disponible</span><span id="stockGranelDisp">—</span></div>
+    </div>
+
     <div class="section-title">Producción del día</div>
     <div class="form-card">
       <div class="field">
@@ -505,6 +516,10 @@
       <div class="field">
         <label>Big bag de 1000kg producidos</label>
         <input type="number" id="prodBigbag" inputmode="numeric" min="0" placeholder="ej. 2">
+      </div>
+      <div class="field">
+        <label>Granel producido (tn, sin embolsar)</label>
+        <input type="number" id="prodGranel" inputmode="decimal" min="0" step="0.5" placeholder="ej. 12,5">
       </div>
       <div class="saldo-block" id="prodKgPreview">Equivalente: <strong>0 kg</strong></div>
       <button class="btn btn-ok" id="prodBtn">Guardar producción</button>
@@ -613,6 +628,7 @@ document.getElementById('photoInput').addEventListener('change', handlePhoto);
 document.getElementById('prodBtn').addEventListener('click', guardarProduccion);
 document.getElementById('prodBolsas').addEventListener('input', updateProdKgPreview);
 document.getElementById('prodBigbag').addEventListener('input', updateProdKgPreview);
+document.getElementById('prodGranel').addEventListener('input', updateProdKgPreview);
 document.getElementById('usuarioEntrega').addEventListener('change', onUsuarioEntregaChange);
 document.getElementById('refreshBtn').addEventListener('click', async () => {
   const btn = document.getElementById('refreshBtn');
@@ -794,6 +810,7 @@ function render() {
 
   const stBolsas = state.stock.bolsas_25kg   || {};
   const stBigbag = state.stock.bigbag_1000kg || {};
+  const stGranel = state.stock.granel_tn     || {};
   document.getElementById('stockBolsasIni').textContent  = fmtNum(stBolsas.inicial);
   document.getElementById('stockBolsasProd').textContent = fmtNum(stBolsas.producido);
   document.getElementById('stockBolsasVen').textContent  = fmtNum(stBolsas.vendido);
@@ -808,6 +825,13 @@ function render() {
   document.getElementById('stockBigbagComp').textContent = fmtNum(stBigbag.comprometido);
   document.getElementById('stockBigbagPal').textContent  = fmtNum(stBigbag.en_pallet);
   document.getElementById('stockBigbagDisp').textContent = fmtNum(stBigbag.disponible);
+  document.getElementById('stockGranelIni').textContent  = fmtNum(stGranel.inicial);
+  document.getElementById('stockGranelProd').textContent = fmtNum(stGranel.producido);
+  document.getElementById('stockGranelVen').textContent  = fmtNum(stGranel.vendido);
+  document.getElementById('stockGranelAct').textContent  = fmtNum(stGranel.actual);
+  document.getElementById('stockGranelComp').textContent = fmtNum(stGranel.comprometido);
+  document.getElementById('stockGranelPal').textContent  = fmtNum(stGranel.en_pallet);
+  document.getElementById('stockGranelDisp').textContent = fmtNum(stGranel.disponible);
 
   const pl = document.getElementById('produccionList');
   pl.innerHTML = '';
@@ -821,10 +845,12 @@ function render() {
       el.querySelector('.fecha').textContent = p.fecha || '';
       const bolsas = Number(p.bolsas_25kg) || 0;
       const bigbag = Number(p.bigbag_1000kg) || 0;
-      const kg = p.kg_total != null ? Number(p.kg_total) : (bolsas * 25 + bigbag * 1000);
+      const granel = Number(p.granel_tn) || 0;
+      const kg = p.kg_total != null ? Number(p.kg_total) : (bolsas * 25 + bigbag * 1000 + granel * 1000);
       const partes = [];
       if (bolsas) partes.push(`${fmtNum(bolsas)} bolsas`);
       if (bigbag) partes.push(`${fmtNum(bigbag)} big bag`);
+      if (granel) partes.push(`${fmtNum(granel)} tn granel`);
       el.querySelector('.qty').innerHTML = (partes.join(' + ') || '—') + ` <small>(${fmtNum(kg)} kg)</small>`;
       pl.appendChild(el);
     });
@@ -1318,31 +1344,36 @@ function imprimirEtiqueta(p, pp) {
 function updateProdKgPreview() {
   const bolsas = Number(document.getElementById('prodBolsas').value) || 0;
   const bigbag = Number(document.getElementById('prodBigbag').value) || 0;
-  const kg = bolsas * 25 + bigbag * 1000;
+  const granel = Number(document.getElementById('prodGranel').value) || 0;
+  const kg = bolsas * 25 + bigbag * 1000 + granel * 1000;
   document.getElementById('prodKgPreview').innerHTML = `Equivalente: <strong>${fmtNum(kg)} kg</strong>`;
 }
 
 async function guardarProduccion() {
   const bolsasInp = document.getElementById('prodBolsas');
   const bigbagInp = document.getElementById('prodBigbag');
+  const granelInp = document.getElementById('prodGranel');
   const bolsas = Number(bolsasInp.value) || 0;
   const bigbag = Number(bigbagInp.value) || 0;
-  if (bolsas <= 0 && bigbag <= 0) { toast('Cargá al menos bolsas o big bag', 'err'); return; }
+  const granel = Math.round((Number(granelInp.value) || 0) * 100) / 100;
+  if (bolsas < 0 || bigbag < 0 || granel < 0) { toast('Las cantidades no pueden ser negativas', 'err'); return; }
+  if (bolsas <= 0 && bigbag <= 0 && granel <= 0) { toast('Cargá al menos bolsas, big bag o granel', 'err'); return; }
   const operario = document.getElementById('prodOperario').value;
   if (!operario) { toast('Elegí el operario', 'err'); return; }
   // Respuesta inmediata: se suma al stock y a la lista en pantalla; el guardado sigue por detrás.
   localStorage.setItem('pavimax_usuario_entrega', operario);
   bolsasInp.value = '';
   bigbagInp.value = '';
+  granelInp.value = '';
   updateProdKgPreview();
-  const sumar = (k, n) => { const st = state.stock[k]; if (st && n) { st.producido = (Number(st.producido) || 0) + n; st.actual = (Number(st.actual) || 0) + n; } };
-  sumar('bolsas_25kg', bolsas); sumar('bigbag_1000kg', bigbag);
+  const sumar = (k, n) => { const st = state.stock[k]; if (st && n) { st.producido = (Number(st.producido) || 0) + n; st.actual = (Number(st.actual) || 0) + n; if (st.disponible != null) st.disponible = Number(st.disponible) + n; } };
+  sumar('bolsas_25kg', bolsas); sumar('bigbag_1000kg', bigbag); sumar('granel_tn', granel);
   const d = new Date(), z = n => String(n).padStart(2, '0');
-  state.produccion = [{ fecha: `${z(d.getDate())}/${z(d.getMonth() + 1)}/${d.getFullYear()} ${z(d.getHours())}:${z(d.getMinutes())}`, bolsas_25kg: bolsas, bigbag_1000kg: bigbag, kg_total: bolsas * 25 + bigbag * 1000, operario }, ...state.produccion].slice(0, 5);
+  state.produccion = [{ fecha: `${z(d.getDate())}/${z(d.getMonth() + 1)}/${d.getFullYear()} ${z(d.getHours())}:${z(d.getMinutes())}`, bolsas_25kg: bolsas, bigbag_1000kg: bigbag, granel_tn: granel, kg_total: bolsas * 25 + bigbag * 1000 + granel * 1000, operario }, ...state.produccion].slice(0, 5);
   render();
   toast('Producción registrada ✓', 'ok');
   try {
-    const r = await postAction({ action: 'producir', bolsas_25kg: bolsas, bigbag_1000kg: bigbag, operario });
+    const r = await postAction({ action: 'producir', bolsas_25kg: bolsas, bigbag_1000kg: bigbag, granel_tn: granel, operario });
     if (!r.ok) throw new Error(r.error || 'error');
   } catch (e) {
     toast('No se guardó la producción: ' + e.message, 'err');

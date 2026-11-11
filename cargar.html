@@ -711,10 +711,12 @@ function pendienteTotals(p) {
 function renderStock() {
   const stBolsas = state.stock.bolsas_25kg   || {};
   const stBigbag = state.stock.bigbag_1000kg || {};
+  const stGranel = state.stock.granel_tn     || {};
   document.getElementById('stockNum').textContent = fmtNum(stBolsas.actual);
   document.getElementById('stockSub').textContent =
-    'bolsas 25kg · ' + fmtNum(stBigbag.actual) + ' big bag'
-    + (stBolsas.disponible != null ? ' · disp. ' + fmtNum(stBolsas.disponible) + ' bolsas' : '');
+    'bolsas 25kg · ' + fmtNum(stBigbag.actual) + ' big bag · ' + fmtNum(stGranel.actual) + ' tn granel'
+    + (stBolsas.disponible != null ? ' · disp. ' + fmtNum(stBolsas.disponible) + ' bolsas' : '')
+    + (stGranel.disponible != null ? ' / ' + fmtNum(stGranel.disponible) + ' tn' : '');
   document.getElementById('pendCount').textContent = state.pendientes.length;
   const totalBolsas = state.pendientes.reduce((s, p) => s + bolsasDe(pendienteTotals(p)), 0);
   document.getElementById('pendBolsas').textContent = fmtNum(totalBolsas);
