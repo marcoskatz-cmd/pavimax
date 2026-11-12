@@ -121,8 +121,10 @@ function doPost(e) {
   try {
     const body   = JSON.parse(e.postData.contents || '{}');
     const action = body.action;
+    // Las acciones de la app de carga solo se aceptan con una sesión válida de la app INGECO (módulo PAVIMAX).
+    if (ACCIONES_CARGA_.indexOf(action) >= 0) body._quien = exigirSesionIngeco_(body);
     let result;
-    if (action === 'entregar')                    result = entregarPedido(body);
+    if (action === 'entregar')                   result = entregarPedido(body);
     else if (action === 'producir')               result = registrarProduccion(body);
     else if (action === 'cargarPedido')           result = cargarPedido(body);
     else if (action === 'addCliente')             result = addCliente(body);
@@ -149,6 +151,48 @@ function doPost(e) {
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err) });
   }
+}
+
+// === ACCESO POR LA APP INGECO ===
+// La app de carga (cargar.html) solo se usa entrando desde la app INGECO: guard.js canjea el ticket y deja
+// window.INGECO_SESION, que el front manda como `ingeco_sesion`. Acá se valida contra el backend común
+// (validar_sesion_modulo, módulo PAVIMAX) y de ahí sale QUIÉN carga: el usuario_carga del body se ignora.
+// La app del operario (entregar, producir, addUsuario, marcarListo) sigue abierta: la usa gente de planta sin cuenta.
+const ACCIONES_CARGA_ = ['cargarPedido', 'addCliente', 'actualizarFechaEntrega', 'editarParciales', 'editarPedido',
+  'eliminarPedido', 'setCapacidadDiaria', 'marcarPago', 'setPrecio', 'subirFactura'];
+const MSG_SIN_SESION_ = 'Abrí PAVIMAX Pedidos desde la app INGECO.';
+
+function exigirSesionIngeco_(body) {
+  const s = String(body.ingeco_sesion || '').trim();
+  if (!s) throw new Error(MSG_SIN_SESION_);
+  const cache = CacheService.getScriptCache();
+  const clave = 'ingses:' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s));
+  const enCache = cache.get(clave);
+  if (enCache) return JSON.parse(enCache);
+  let j;
+  try {
+    const r = UrlFetchApp.fetch(APP_INGECO_BACKEND_, {
+      method: 'post', contentType: 'text/plain;charset=utf-8', muteHttpExceptions: true,
+      payload: JSON.stringify({ accion: 'validar_sesion_modulo', payload: { sesion: s, modulo: 'PAVIMAX' } })
+    });
+    j = JSON.parse(r.getContentText());
+  } catch (e) {
+    throw new Error('No se pudo validar tu sesión con la app INGECO. Probá de nuevo en un momento.');
+  }
+  if (!j || !j.ok) throw new Error((j && j.error) || MSG_SIN_SESION_);
+  const nombre = String(j.nombre_visible || '').trim();
+  if (!nombre) throw new Error('Tu usuario de la app INGECO no tiene nombre cargado.');
+  const quien = { legajo: j.legajo, nombre: nombreEnUsuarios_(nombre) };
+  cache.put(clave, JSON.stringify(quien), 600); // 10 min: evita una vuelta a la app INGECO en cada guardado
+  return quien;
+}
+
+// Si el nombre ya está en USUARIOS (sin importar mayúsculas/acentos) se usa esa grafía, para no duplicar personas.
+function nombreEnUsuarios_(nombre) {
+  const norm = x => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  let lista = [];
+  try { lista = getUsuarios(); } catch (e) { }
+  return lista.find(u => norm(u) === norm(nombre)) || nombre;
 }
 
 function jsonResponse(obj) {
@@ -766,9 +810,10 @@ function redondear_(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 function cargarPedido(body) {
   const cliente      = String(body.cliente || '').trim();
   const obs          = String(body.observacion || '').trim();
-  const usuarioCarga = String(body.usuario_carga || '').trim();
+  // Quién carga lo define la sesión de la app INGECO (doPost), no lo que mande el navegador.
+  const usuarioCarga = body._quien ? body._quien.nombre : '';
+  if (!usuarioCarga) throw new Error(MSG_SIN_SESION_);
   if (!cliente)      throw new Error('Falta cliente');
-  if (!usuarioCarga) throw new Error('Falta usuario_carga');
 
   let parciales = Array.isArray(body.parciales) ? body.parciales.slice() : [];
   if (parciales.length === 0) throw new Error('Falta al menos una tanda');

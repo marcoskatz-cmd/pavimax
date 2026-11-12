@@ -600,6 +600,29 @@ const state = {
   capPasoConfirm: false
 };
 
+/* ===== ACCESO: solo desde la app INGECO ===== */
+// guard.js (en el <head>) ya canjeó el ticket. Sin identidad no se puede usar: el backend además rechaza
+// cualquier guardado sin una sesión válida (ingeco_sesion), así que esto es solo la cara visible del control.
+if (!window.INGECO_USUARIO || !window.INGECO_SESION) {
+  const motivo = window.INGECO_MOTIVO && !/^Abrí este sistema/.test(window.INGECO_MOTIVO) ? window.INGECO_MOTIVO : '';
+  document.body.innerHTML =
+    '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--fondo)">' +
+      '<div style="max-width:360px;text-align:center;background:var(--superficie);border:1px solid var(--linea);border-radius:14px;padding:28px 22px">' +
+        '<img src="logo.png" alt="PAVIMAX" style="height:44px;margin-bottom:14px">' +
+        '<h2 style="margin:0 0 8px;font-size:1.15rem;color:var(--texto)">Abrí PAVIMAX Pedidos desde la app INGECO</h2>' +
+        '<p style="margin:0 0 18px;color:var(--texto-2);font-size:.92rem">La carga de pedidos queda registrada a nombre de quien entra, por eso solo se usa desde la app.' +
+          (motivo ? '<br><br><b>' + motivo.replace(/[<>&]/g, '') + '</b>' : '') + '</p>' +
+        '<a href="https://app.ingecosa.com.ar/" style="display:inline-block;background:var(--azul);color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-weight:600">Ir a la app INGECO</a>' +
+      '</div>' +
+    '</div>';
+  throw new Error('PAVIMAX Pedidos: sin sesión de la app INGECO');
+}
+
+// Todo guardado viaja con la sesión de la app INGECO: el backend la valida y de ahí saca quién carga.
+function cuerpoPost(o) {
+  return JSON.stringify(Object.assign({}, o, { ingeco_sesion: window.INGECO_SESION || '' }));
+}
+
 /* ===== INIT ===== */
 document.getElementById('sheetLink').href = CONFIG.SHEET_URL;
 document.getElementById('saveBtn').addEventListener('click', cargarPedido);
@@ -999,7 +1022,7 @@ async function cambiarPago(p, sel) {
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'marcarPago', id: p.id, estado_pago: nuevo, con_all: true })
+      body: cuerpoPost({ action: 'marcarPago', id: p.id, estado_pago: nuevo, con_all: true })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
@@ -1178,7 +1201,7 @@ async function editarPrecio(p) {
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'setPrecio', id: p.id, precios: nuevos, iva, con_all: true })
+      body: cuerpoPost({ action: 'setPrecio', id: p.id, precios: nuevos, iva, con_all: true })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
@@ -1208,7 +1231,7 @@ function subirFactura(p) {
       const r = await fetch(CONFIG.API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'subirFactura', id: p.id, archivo_base64: b64, mime: f.type || 'application/pdf', con_all: true })
+        body: cuerpoPost({ action: 'subirFactura', id: p.id, archivo_base64: b64, mime: f.type || 'application/pdf', con_all: true })
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || 'error');
@@ -1271,7 +1294,7 @@ async function cargarPedido() {
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
+      body: cuerpoPost({
         action: 'cargarPedido',
         con_all: true,
         cliente,
@@ -1475,7 +1498,7 @@ async function saveEditParciales() {
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
+      body: cuerpoPost({
         action: 'editarPedido',
         con_all: true,
         id: state.editingId,
@@ -1516,7 +1539,7 @@ async function eliminarPedido() {
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'eliminarPedido', con_all: true, id: state.editingId })
+      body: cuerpoPost({ action: 'eliminarPedido', con_all: true, id: state.editingId })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
@@ -1574,7 +1597,7 @@ async function capPasoConfirmar() {
     const r = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'setCapacidadDiaria', capacidad_diaria: nuevo , con_all: true })
+      body: cuerpoPost({ action: 'setCapacidadDiaria', capacidad_diaria: nuevo , con_all: true })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'error');
