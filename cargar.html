@@ -430,6 +430,9 @@
       </select>
       <input type="text" id="usuarioNuevo" class="field-extra"
              placeholder="Nombre del usuario nuevo" autocomplete="off" style="display:none">
+      <div id="usuarioFijoNota" style="display:none;font-size:11px;color:var(--muted);margin-top:4px">
+        Entraste desde la app INGECO: el pedido queda a tu nombre.
+      </div>
     </div>
     <div class="field">
       <label>Cliente <span class="req">*</span></label>
@@ -754,8 +757,35 @@ function renderCapacidad() {
   }
 }
 
+// Si se entró desde la app INGECO, guard.js ya resolvió quién es: el "Cargado por" queda fijo en esa persona.
+// Si el nombre coincide con uno de USUARIOS (sin importar mayúsculas/acentos) se usa la grafía de la planilla.
+function normNombre_(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+function usuarioFijo() {
+  const u = window.INGECO_USUARIO;
+  const nombre = u && String(u.nombre_visible || '').trim();
+  if (!nombre) return '';
+  const enLista = (state.usuarios || []).find(x => normNombre_(x) === normNombre_(nombre));
+  return enLista || nombre;
+}
+
 function renderUsuarios() {
   const sel = document.getElementById('usuarioSelect');
+  const fijo = usuarioFijo();
+  if (fijo) {
+    sel.innerHTML = '';
+    const opt = document.createElement('option');
+    opt.value = fijo; opt.textContent = fijo;
+    sel.appendChild(opt);
+    sel.value = fijo;
+    sel.disabled = true;
+    sel.title = 'Ingresaste desde la app INGECO: el pedido queda a tu nombre';
+    const nuevo = document.getElementById('usuarioNuevo');
+    nuevo.style.display = 'none'; nuevo.value = '';
+    document.getElementById('usuarioFijoNota').style.display = '';
+    return;
+  }
   const prevValue = sel.value || state._restoreUsuario || '';
   sel.innerHTML = '';
   const optEmpty = document.createElement('option');
@@ -824,6 +854,8 @@ function getClienteName() {
   return sel;
 }
 function getUsuarioName() {
+  const fijo = usuarioFijo();
+  if (fijo) return fijo;
   const sel = document.getElementById('usuarioSelect').value;
   if (sel === '__new__') return document.getElementById('usuarioNuevo').value.trim();
   return sel;
@@ -1254,7 +1286,7 @@ async function cargarPedido() {
     if (!j.ok) throw new Error(j.error || 'error');
     toast(`✓ Pedido #${j.data.id} cargado`, 'ok');
     // Recordar usuario
-    localStorage.setItem('pavimax_usuario', usuario);
+    if (!usuarioFijo()) localStorage.setItem('pavimax_usuario', usuario);
     // Reset (menos usuario)
     document.getElementById('clienteSelect').value = '';
     document.getElementById('clienteNuevo').value = '';
