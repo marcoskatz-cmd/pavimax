@@ -177,6 +177,7 @@ function exigirSesionIngeco_(body) {
     });
     j = JSON.parse(r.getContentText());
   } catch (e) {
+    console.warn('exigirSesionIngeco_: ' + e);
     throw new Error('No se pudo validar tu sesión con la app INGECO. Probá de nuevo en un momento.');
   }
   if (!j || !j.ok) throw new Error((j && j.error) || MSG_SIN_SESION_);
@@ -185,6 +186,18 @@ function exigirSesionIngeco_(body) {
   const quien = { legajo: j.legajo, nombre: nombreEnUsuarios_(nombre) };
   cache.put(clave, JSON.stringify(quien), 600); // 10 min: evita una vuelta a la app INGECO en cada guardado
   return quien;
+}
+
+// Correr UNA vez a mano en el editor (Ejecutar) para autorizar el permiso de conectarse a la app INGECO
+// (script.external_request). Sin eso, la validación de sesión y los avisos a la app fallan.
+function autorizarConexionAppIngeco() {
+  const r = UrlFetchApp.fetch(APP_INGECO_BACKEND_ + '?accion=ping', { muteHttpExceptions: true });
+  Logger.log('App INGECO respondió: ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 120));
+  const p = UrlFetchApp.fetch(APP_INGECO_BACKEND_, {
+    method: 'post', contentType: 'text/plain;charset=utf-8', muteHttpExceptions: true,
+    payload: JSON.stringify({ accion: 'validar_sesion_modulo', payload: { sesion: 'PRUEBA', modulo: 'PAVIMAX' } })
+  });
+  Logger.log('validar_sesion_modulo: ' + p.getResponseCode() + ' ' + p.getContentText().slice(0, 300));
 }
 
 // Si el nombre ya está en USUARIOS (sin importar mayúsculas/acentos) se usa esa grafía, para no duplicar personas.
