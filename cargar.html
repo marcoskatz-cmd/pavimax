@@ -321,11 +321,39 @@
   .hist-filtros button { border:1px solid var(--border); background:var(--surface); border-radius:999px; padding:6px 12px; font-size:13px; cursor:pointer; }
   .hist-filtros button.on { background:var(--tinta); color:var(--fondo); border-color:var(--tinta); }
   .hist-filtros input { flex:1; min-width:140px; border:1px solid var(--border); border-radius:999px; padding:6px 12px; font-size:13px; }
-  .hist-row { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:8px; display:flex; gap:10px; align-items:center; box-shadow:var(--shadow); }
+  /* Historial: una fila por pedido (cliente · fecha · cantidad · estado); el detalle abre en hoja */
+  .hist-row { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:6px; display:flex; gap:10px; align-items:center; cursor:pointer; width:100%; text-align:left; font:inherit; color:inherit; }
+  .hist-row:active { transform: scale(0.995); }
   .hist-row .info { flex:1; min-width:0; }
-  .hist-row .cli { font-weight:700; }
-  .hist-row .obs { font-size:12px; color:var(--muted); margin-top:2px; }
-  .hist-row .obs a { color:var(--info); }
+  .hist-row .cli { font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hist-row .meta { font-size:12px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .hist-row .chev { color:var(--texto-3); font-size:20px; line-height:1; flex-shrink:0; }
+  .hist-count { font-size:12px; color:var(--muted); margin:0 2px 6px; }
+  .pago-pill { flex-shrink:0; border:1.5px solid; border-radius:999px; padding:4px 10px; font-size:12px; font-weight:700; white-space:nowrap; }
+  .pago-pill.e0, .pago-sel.e0 { background:var(--alerta-suave); color:var(--alerta); border-color:var(--alerta); }
+  .pago-pill.e1, .pago-sel.e1 { background:var(--fondo-2); color:var(--texto-2); border-color:var(--linea-fuerte); }
+  .pago-pill.e2, .pago-sel.e2 { background:var(--azul-suave); color:var(--azul); border-color:var(--azul-claro); }
+  .pago-pill.e3, .pago-sel.e3 { background:var(--teal-suave); color:var(--teal); border-color:var(--teal); }
+  /* Hoja de detalle */
+  .det-sec { border-top:1px solid var(--linea); padding:12px 0; }
+  .det-sec:first-of-type { border-top:none; padding-top:4px; }
+  .det-sec h3 { margin:0 0 8px; font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--texto-2); }
+  .det-kv { display:flex; justify-content:space-between; gap:12px; font-size:14px; padding:3px 0; }
+  .det-kv span:first-child { color:var(--texto-2); }
+  .det-kv span:last-child { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+  .det-acc { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .det-acc .pago-sel { max-width:none; flex:1; min-height:44px; font-size:15px; }
+  .det-acc .precio-btn { min-height:44px; padding:8px 12px; font-size:14px; }
+  .det-acc a { color:var(--info); font-weight:600; font-size:14px; }
+  .tl { list-style:none; margin:0; padding:0 0 0 18px; position:relative; }
+  .tl::before { content:''; position:absolute; left:5px; top:6px; bottom:6px; width:2px; background:var(--linea); }
+  .tl li { position:relative; padding:0 0 12px; font-size:14px; }
+  .tl li:last-child { padding-bottom:0; }
+  .tl li::before { content:''; position:absolute; left:-17px; top:5px; width:10px; height:10px; border-radius:50%; background:var(--superficie); border:2px solid var(--azul-claro); }
+  .tl li.ent::before { background:var(--teal); border-color:var(--teal); }
+  .tl .t { font-weight:700; }
+  .tl .s { color:var(--texto-2); font-size:13px; margin-top:1px; }
+  .tl .s a { color:var(--info); font-weight:600; }
   .iva-toggle { display:flex; gap:6px; margin-bottom:8px; }
 .iva-toggle button { flex:1; padding:9px; border:2px solid var(--border); border-radius:10px; background:var(--surface); font-weight:700; font-size:14px; cursor:pointer; }
 .iva-toggle button.on { border-color:#157f3d; background:#e8f5ec; color:#0f5e2d; }
@@ -336,10 +364,6 @@
 .precio-btn { border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 6px; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap; }
 .precio-btn.vacio { color:#b45309; border-color:#f59e0b; }
 .pago-sel { border:2px solid; border-radius:10px; padding:8px 6px; font-size:13px; font-weight:700; cursor:pointer; max-width:150px; }
-  .pago-sel.e0 { background:var(--alerta-suave); color:var(--alerta); border-color:var(--alerta); }
-  .pago-sel.e1 { background:var(--fondo-2); color:var(--texto-2); border-color:var(--linea-fuerte); }
-  .pago-sel.e2 { background:var(--azul-suave); color:var(--azul); border-color:var(--azul-claro); }
-  .pago-sel.e3 { background:var(--teal-suave); color:var(--teal); border-color:var(--teal); }
   .pago-sel:disabled { opacity:.6; }
   /* ===== Estilo común INGECO (ingeco.css): barra, tipografía, botones, inputs, pestañas ===== */
   header .brand { padding-left: 4px; min-width: 0; }
@@ -470,7 +494,7 @@
 
   <div class="section-title">Pedidos pendientes — tocá para editar las parciales</div>
   <div id="pendList"></div>
-  <div class="section-title">Historial de entregados — elegí el estado de la factura</div>
+  <div class="section-title">Historial de entregados — tocá un pedido para ver el detalle</div>
   <div class="hist-filtros" id="histFiltros">
     <button data-f="todos" class="on">Todos</button>
     <button data-f="sin pagar">Sin pagar</button>
@@ -479,12 +503,18 @@
     <button data-f="pagada">Pagada</button>
     <input type="search" id="histBuscar" placeholder="Buscar cliente…">
   </div>
+  <div class="hist-count" id="histCount"></div>
   <div id="histList"></div>
   <div class="helper-links">
     <a id="sheetLink" href="#" target="_blank">📋 Abrir planilla en Drive ↗</a>
   </div>
 
 </main>
+
+<!-- Hoja: detalle de un pedido entregado (historial) -->
+<div class="modal-bg" id="histModalBg">
+  <div class="modal" id="histModal"></div>
+</div>
 
 <!-- Modal: editar / eliminar un pedido pendiente -->
 <div class="modal-bg" id="editModalBg">
@@ -590,6 +620,7 @@ const state = {
   pendientes: [],
   entregados: [],
   histFiltro: 'todos',
+  histDetalleId: null,
   stock: {},
   capacidadDiaria: null,
   parcialesForm: [],  // [{fecha, bolsas_25kg, bigbag_1000kg, emul_1l, emul_5l, emul_20l}]
@@ -953,6 +984,27 @@ document.querySelectorAll('#histFiltros button').forEach(b => b.addEventListener
 }));
 document.getElementById('histBuscar').addEventListener('input', renderHistorial);
 
+function estadoLabel(e) { return e === 'pagada' ? '✔ Pagada' : e.charAt(0).toUpperCase() + e.slice(1); }
+function soloFecha(f) { return String(f || '').split(' ')[0]; }
+function escHtml(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+// "100 kg · 2×20L": lo justo para la fila del listado
+function cantCorta(t) {
+  const parts = [];
+  const kg = materialKg(t || {});
+  if (kg > 0) parts.push(fmtNum(kg) + ' kg');
+  const em = [['emul_1l', '1L'], ['emul_5l', '5L'], ['emul_20l', '20L']]
+    .filter(([k]) => Number((t || {})[k]) > 0).map(([k, l]) => fmtNum(t[k]) + '×' + l);
+  if (em.length) parts.push(em.join(' '));
+  return parts.join(' · ') || '—';
+}
+function cantDetalleHtml(t) {
+  return PRODUCTS.filter(pr => Number((t || {})[pr.key]) > 0)
+    .map(pr => `<div class="det-kv"><span>${escHtml(PRECIO_LABEL[pr.key] || pr.label)}</span><span>${fmtNum(t[pr.key])}</span></div>`)
+    .join('');
+}
+
 function renderHistorial() {
   const list = document.getElementById('histList');
   const q = document.getElementById('histBuscar').value.trim().toLowerCase();
@@ -960,51 +1012,96 @@ function renderHistorial() {
     (state.histFiltro === 'todos' || state.histFiltro === (p.estado_pago || 'sin pagar')) &&
     (!q || String(p.cliente || '').toLowerCase().includes(q)));
   list.innerHTML = '';
-  if (!rows.length) { list.innerHTML = '<div class="empty">Sin pedidos para mostrar</div>'; return; }
+  document.getElementById('histCount').textContent = rows.length ? rows.length + (rows.length === 1 ? ' pedido' : ' pedidos') : '';
+  if (!rows.length) { list.innerHTML = '<div class="empty">Sin pedidos para mostrar</div>'; renderHistDetalle(); return; }
   rows.forEach(p => {
-    const el = document.createElement('div');
-    el.className = 'hist-row';
-    el.innerHTML = `<div class="info"><div class="cli"></div><div class="obs"></div></div>
-      <div class="cant">${productChipsHtml(p.productos_total || {})}</div>
-      <button type="button" class="precio-btn"></button>
-      <select class="pago-sel"></select>`;
-    const pb = el.querySelector('.precio-btn');
-    pb.textContent = precioTexto(p);
-    pb.classList.toggle('vacio', pb.textContent.startsWith('💲'));
-    pb.addEventListener('click', () => editarPrecio(p));
-    const fac = document.createElement('div');
-    fac.className = 'obs';
-    if (p.link_factura) {
-      const a = document.createElement('a');
-      a.href = p.link_factura; a.target = '_blank'; a.textContent = '🧾 factura ↗';
-      fac.appendChild(a);
-    }
-    const fb = document.createElement('button');
-    fb.type = 'button'; fb.className = 'precio-btn' + (p.link_factura ? '' : ' vacio');
-    fb.style.marginLeft = '6px';
-    fb.textContent = p._subiendo ? 'Subiendo…' : (p.link_factura ? 'Reemplazar' : '🧾 Cargar factura');
-    fb.disabled = !!p._subiendo;
-    fb.addEventListener('click', () => subirFactura(p));
-    fac.appendChild(fb);
-    el.querySelector('.info').appendChild(fac);
-    el.querySelector('.cli').textContent = p.cliente || '';
-    const obs = el.querySelector('.obs');
-    obs.textContent = 'Entregado ' + (p.fecha_entrega || '—').split(' ')[0]
-      + ((p.entregas || []).length > 1 ? ` · ${p.entregas.length} tandas` : '')
-      + (p.estado_pago !== 'sin pagar' && p.fecha_pago ? ` · ${p.estado_pago} desde ${p.fecha_pago}` : '');
-    if (p.link_remito) {
-      const a = document.createElement('a');
-      a.href = p.link_remito; a.target = '_blank'; a.textContent = ' · remito ↗';
-      obs.appendChild(a);
-    }
-    const sel = el.querySelector('.pago-sel');
     const est = p.estado_pago || 'sin pagar';
-    ESTADOS_PAGO.forEach(e => { const o = document.createElement('option'); o.value = e; o.textContent = e === 'pagada' ? '✔ Pagada' : e.charAt(0).toUpperCase() + e.slice(1); sel.appendChild(o); });
-    sel.value = est;
-    sel.className = 'pago-sel e' + ESTADOS_PAGO.indexOf(est);
-    sel.addEventListener('change', () => cambiarPago(p, sel));
+    const tot = totalVenta(p.productos_total || {}, (p.precio && p.precio.precios) || {});
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'hist-row';
+    el.innerHTML = `<div class="info"><div class="cli"></div><div class="meta"></div></div>
+      <span class="pago-pill e${ESTADOS_PAGO.indexOf(est)}"></span><span class="chev" aria-hidden="true">›</span>`;
+    el.querySelector('.cli').textContent = p.cliente || '—';
+    el.querySelector('.meta').textContent = [soloFecha(p.fecha_entrega) || '—', cantCorta(p.productos_total),
+      tot > 0 ? fmtPesos(tot) : 'sin precio'].join(' · ');
+    el.querySelector('.pago-pill').textContent = est === 'uso interno INGECO' ? 'Uso interno' : estadoLabel(est);
+    el.addEventListener('click', () => abrirHistDetalle(p.id));
     list.appendChild(el);
   });
+  renderHistDetalle();
+}
+
+function abrirHistDetalle(id) {
+  state.histDetalleId = String(id);
+  renderHistDetalle();
+  document.getElementById('histModalBg').classList.add('show');
+}
+function cerrarHistDetalle() {
+  state.histDetalleId = null;
+  document.getElementById('histModalBg').classList.remove('show');
+}
+document.getElementById('histModalBg').addEventListener('click', e => {
+  if (e.target.id === 'histModalBg') cerrarHistDetalle();
+});
+
+// La hoja se vuelve a dibujar desde state cada vez que llegan datos nuevos (pago, precio, factura).
+function renderHistDetalle() {
+  if (!state.histDetalleId) return;
+  const p = state.entregados.find(x => String(x.id) === state.histDetalleId);
+  const m = document.getElementById('histModal');
+  if (!p) { cerrarHistDetalle(); return; }
+  const est = p.estado_pago || 'sin pagar';
+  const tot = totalVenta(p.productos_total || {}, (p.precio && p.precio.precios) || {});
+  const entregas = (p.entregas || []).slice().reverse(); // cronológico: primera tanda arriba
+
+  const tl = [];
+  tl.push(`<li><div class="t">Cargado${p.fecha_carga ? ' el ' + escHtml(p.fecha_carga) : ''}</div>
+    <div class="s">por ${escHtml(p.usuario_carga || '—')}${p.observacion_pedido ? ' · “' + escHtml(p.observacion_pedido) + '”' : ''}</div></li>`);
+  entregas.forEach((e, i) => {
+    const titulo = entregas.length > 1 ? `Tanda ${i + 1} entregada` : 'Entregado';
+    const extra = [];
+    if (e.listo_por) extra.push(`<div class="s">Listo por ${escHtml(e.listo_por)}${e.fecha_listo ? ' el ' + escHtml(e.fecha_listo) : ''}</div>`);
+    if (e.fecha_planeada) extra.push(`<div class="s">Fecha planeada ${escHtml(e.fecha_planeada)}</div>`);
+    extra.push(`<div class="s">${escHtml(cantCorta(e))}</div>`);
+    if (e.observacion) extra.push(`<div class="s">“${escHtml(e.observacion)}”</div>`);
+    if (e.link_remito) extra.push(`<div class="s"><a href="${escHtml(e.link_remito)}" target="_blank" rel="noopener">📄 Ver remito ↗</a></div>`);
+    else extra.push(`<div class="s">Sin foto de remito</div>`);
+    tl.push(`<li class="ent"><div class="t">${titulo}${e.fecha ? ' el ' + escHtml(e.fecha) : ''}</div>
+      <div class="s">por ${escHtml(e.usuario_entrega || '—')}</div>${extra.join('')}</li>`);
+  });
+  if (est !== 'sin pagar' && p.fecha_pago) {
+    tl.push(`<li><div class="t">${escHtml(estadoLabel(est))} desde ${escHtml(p.fecha_pago)}</div></li>`);
+  }
+
+  m.innerHTML = `
+    <h2></h2>
+    <div class="sub">Pedido #${escHtml(p.id)} · ${escHtml(cantCorta(p.productos_total))}</div>
+    <div class="det-sec">
+      <h3>Factura</h3>
+      <div class="det-acc"><select class="pago-sel e${ESTADOS_PAGO.indexOf(est)}" id="detPago"></select></div>
+      <div class="det-acc" style="margin-top:8px">
+        <button type="button" class="precio-btn${tot > 0 ? '' : ' vacio'}" id="detPrecio"></button>
+        <button type="button" class="precio-btn${p.link_factura ? '' : ' vacio'}" id="detFactura"></button>
+        ${p.link_factura ? `<a href="${escHtml(p.link_factura)}" target="_blank" rel="noopener">🧾 Ver factura ↗</a>` : ''}
+      </div>
+    </div>
+    <div class="det-sec"><h3>Qué se entregó</h3>${cantDetalleHtml(p.productos_total) || '<div class="det-kv"><span>—</span><span></span></div>'}</div>
+    <div class="det-sec"><h3>Recorrido</h3><ul class="tl">${tl.join('')}</ul></div>
+    <div class="actions"><button class="btn btn-secondary" type="button" id="detCerrar">Cerrar</button></div>`;
+  m.querySelector('h2').textContent = p.cliente || '—';
+  const sel = m.querySelector('#detPago');
+  ESTADOS_PAGO.forEach(e => { const o = document.createElement('option'); o.value = e; o.textContent = estadoLabel(e); sel.appendChild(o); });
+  sel.value = est;
+  sel.addEventListener('change', () => cambiarPago(p, sel));
+  const pb = m.querySelector('#detPrecio');
+  pb.textContent = tot > 0 ? precioTexto(p) + ' ✎' : '💲 Poner precio';
+  pb.addEventListener('click', () => editarPrecio(p));
+  const fb = m.querySelector('#detFactura');
+  fb.textContent = p._subiendo ? 'Subiendo…' : (p.link_factura ? 'Reemplazar factura' : '🧾 Cargar factura');
+  fb.disabled = !!p._subiendo;
+  fb.addEventListener('click', () => subirFactura(p));
+  m.querySelector('#detCerrar').addEventListener('click', cerrarHistDetalle);
 }
 
 const ESTADOS_PAGO = ['sin pagar', 'muestra gratis', 'uso interno INGECO', 'pagada'];

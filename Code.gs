@@ -332,7 +332,10 @@ function getEntregados() {
           fecha_iso:  toIsoDate_(pa.fecha_entrega),
           observacion: pa.observacion_entrega || '',
           link_remito: pa.link_remito || '',
-          usuario_entrega: pa.usuario_entrega || ''
+          usuario_entrega: pa.usuario_entrega || '',
+          fecha_planeada: fmtDate_(pa.fecha_planeada),
+          listo_por: String(pa.listo_por || '').trim(),
+          fecha_listo: pa.listo_por ? fmt(pa.fecha_listo) : ''
         };
         PRODUCTOS.forEach(k => { o[k] = Number(pa[k]) || 0; });
         o.material_kg = materialKg_(pa);
@@ -343,6 +346,8 @@ function getEntregados() {
     out.push({
       id: p.id,
       cliente: p.cliente,
+      fecha_carga: fmt(p.fecha_carga),          // para el detalle del historial (cargar.html)
+      usuario_carga: p.usuario_carga || '',
       productos_total: productos_total,
       observacion_pedido: p.observacion_pedido || '',
       fecha_entrega: ultima.fecha || '',
