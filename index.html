@@ -81,6 +81,8 @@
     font-size: 36px; font-weight: 900; color: var(--primary-dark); letter-spacing: 3px;
   }
   .home-hero .sub { color: var(--muted); font-size: 14px; margin-top: 10px; }
+  .aviso-prod { display:block; width:100%; text-align:left; background:#fff7e0; border:1px solid #f0c75e; color:#7a4b00; border-radius:12px; padding:12px 14px; margin:0 0 14px; font-size:15px; font-weight:600; cursor:pointer; }
+  .aviso-prod.hidden { display:none; }
 
   .home-btn {
     display: flex; align-items: center; gap: 16px;
@@ -429,6 +431,8 @@
       <img src="logo.png" alt="PAVIMAX" onerror="this.outerHTML='<div class=&quot;logo&quot;>PAVIMAX</div>'">
       <div class="sub">Control de pedidos y stock</div>
     </div>
+
+    <button class="aviso-prod hidden" id="avisoProd" data-go="produccion">⏰ Todavía no se cargó la producción de hoy. Tocá acá para cargarla.</button>
 
     <button class="home-btn" data-go="pedidos">
       <div class="icon">📦</div>
@@ -833,6 +837,12 @@ function render() {
   document.getElementById('stockGranelPal').textContent  = fmtNum(stGranel.en_pallet);
   document.getElementById('stockGranelDisp').textContent = fmtNum(stGranel.disponible);
 
+  // Desde las 17 h, si no hay producción de hoy, cartel en el inicio (además del aviso de la app INGECO).
+  const dHoy = new Date(), z2h = n => String(n).padStart(2, '0');
+  const hoyTxt = z2h(dHoy.getDate()) + '/' + z2h(dHoy.getMonth() + 1) + '/' + dHoy.getFullYear();
+  const faltaProd = dHoy.getHours() >= 17 && dHoy.getDay() !== 0 && !state.produccion.some(p => String(p.fecha || '').startsWith(hoyTxt));
+  document.getElementById('avisoProd').classList.toggle('hidden', !faltaProd);
+
   const pl = document.getElementById('produccionList');
   pl.innerHTML = '';
   if (state.produccion.length === 0) {
@@ -1199,13 +1209,34 @@ function openModalListo(p, parcial) {
   if (ultimo && state.usuarios.includes(ultimo)) sel.value = ultimo;
   document.getElementById('modalListoBg').classList.add('show');
 }
+/** Stock físico libre = actual − lo ya armado en otros pallets. Devuelve el texto de lo que falta, o '' si alcanza. (El servidor controla igual.) */
+function faltaStockParaArmar(pp) {
+  const nombres = { bolsas_25kg: 'bolsas', bigbag_1000kg: 'big bag', granel_tn: 'tn a granel' };
+  const yaListo = !!String(pp.listo_por || '').trim();
+  const faltas = [];
+  Object.keys(nombres).forEach(k => {
+    const n = Number(pp[k]) || 0, st = (state.stock || {})[k];
+    if (n <= 0 || !st || st.actual == null) return;
+    const enOtros = (Number(st.en_pallet) || 0) - (yaListo ? n : 0);
+    const libre = Math.round(((Number(st.actual) || 0) - enOtros) * 100) / 100;
+    if (n > libre) faltas.push(`Lleva ${fmtNum(n)} ${nombres[k]} y quedan ${fmtNum(Math.max(libre, 0))} libres (stock ${fmtNum(st.actual)}${enOtros > 0 ? ', ' + fmtNum(enOtros) + ' ya en otros pallets' : ''}).`);
+  });
+  return faltas.join('\n');
+}
 function closeModalListo() {
   document.getElementById('modalListoBg').classList.remove('show');
   state.listoPedido = null; state.listoParcial = null;
 }
 function aplicarListoLocal(idParc, usuario, fecha) {
   state.pendientes.forEach(p => (p.parciales_pendientes || []).forEach(pp => {
-    if (String(pp.id_parcial) === String(idParc)) { pp.listo_por = usuario; pp.fecha_listo = fecha; }
+    if (String(pp.id_parcial) === String(idParc)) {
+      const antes = !!String(pp.listo_por || '').trim(), ahora = !!String(usuario || '').trim();
+      if (antes !== ahora) ['bolsas_25kg', 'bigbag_1000kg', 'granel_tn'].forEach(k => {   // "ya en pallet" al instante
+        const st = (state.stock || {})[k];
+        if (st && st.en_pallet != null) st.en_pallet = Number(st.en_pallet) + (ahora ? 1 : -1) * (Number(pp[k]) || 0);
+      });
+      pp.listo_por = usuario; pp.fecha_listo = fecha;
+    }
   }));
   render();
 }
@@ -1214,6 +1245,8 @@ async function confirmarListo() {
   if (!p || !pp) return;
   const usuario = document.getElementById('usuarioListo').value;
   if (!usuario) { toast('Elegí tu nombre', 'err'); return; }
+  const falta = faltaStockParaArmar(pp);
+  if (falta) { alert('No hay stock para armar esta tanda.\n\n' + falta + '\n\nPrimero cargá la producción.'); return; }
   localStorage.setItem('pavimax_usuario_entrega', usuario);
   closeModalListo();
   const d = new Date(), z2 = n => String(n).padStart(2, '0');

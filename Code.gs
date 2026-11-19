@@ -680,6 +680,13 @@ function marcarListo(body) {
   if (!idParc) throw new Error('Falta id_parcial');
   if (listo && !usuario) throw new Error('Falta usuario');
 
+  // Lock: dos operarios armando a la vez no pueden pasar los dos el control de stock.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try { return marcarListoBloqueado_(idParc, usuario, listo); } finally { lock.releaseLock(); }
+}
+
+function marcarListoBloqueado_(idParc, usuario, listo) {
   const ss = ss_();
   const shParc = ss.getSheetByName(SH_PARCIALES);
   if (!shParc) throw new Error('Falta hoja ENTREGAS_PARCIALES');
@@ -690,6 +697,7 @@ function marcarListo(body) {
   const i = rows.findIndex(r => String(r[cI('id_parcial') - 1]) === idParc);
   if (i < 0) throw new Error('Tanda no encontrada: ' + idParc);
   if (String(rows[i][cI('estado') - 1] || '').toLowerCase() !== 'pendiente') throw new Error('La tanda no está pendiente');
+  if (listo) controlarStockParaArmar_(rows[i], cI, !!String(rows[i][cI('listo_por') - 1] || '').trim());
   const row = i + 2;
   const ahora = new Date();
   shParc.getRange(row, cI('listo_por')).setValue(listo ? usuario : '');
@@ -710,6 +718,28 @@ function marcarListo(body) {
     } catch (e) { console.warn('aviso listo: ' + e); }
   }
   return { id_parcial: idParc, listo, listo_por: listo ? usuario : '', fecha_listo: listo ? fmt(ahora) : '' };
+}
+
+// Para armar una tanda tiene que haber stock FÍSICO libre: el stock actual menos lo que ya está
+// armado en otros pallets. (No se usa "disponible" = actual − comprometido porque eso ya descuenta
+// esta misma tanda y todos los pedidos futuros sin armar.) La emulsión no tiene stock: no se controla.
+const PRODUCTOS_CON_STOCK_ = ['bolsas_25kg', 'bigbag_1000kg', 'granel_tn'];
+function controlarStockParaArmar_(fila, cI, yaListo) {
+  const st = getStock();
+  const nombres = { bolsas_25kg: 'bolsas', bigbag_1000kg: 'big bag', granel_tn: 'tn a granel' };
+  const faltas = [];
+  PRODUCTOS_CON_STOCK_.forEach(k => {
+    const n = cI(k) > 0 ? (Number(fila[cI(k) - 1]) || 0) : 0;
+    if (n <= 0 || !st[k]) return;
+    const actual = Number(st[k].actual) || 0;
+    const enOtros = (Number(st[k].en_pallet) || 0) - (yaListo ? n : 0);
+    const libre = redondear_(actual - enOtros);
+    if (n > libre) {
+      faltas.push('la tanda lleva ' + n + ' ' + nombres[k] + ' y quedan ' + Math.max(libre, 0) + ' libres (stock ' + actual
+        + (enOtros > 0 ? ', ' + redondear_(enOtros) + ' ya en otros pallets' : '') + ')');
+    }
+  });
+  if (faltas.length) throw new Error('No hay stock para armar esta tanda: ' + faltas.join('; ') + '. Primero cargá la producción.');
 }
 
 function productosTexto_(prod) {
@@ -2030,4 +2060,41 @@ function avisarStockBajo_() {
     titulo: 'Stock bajo en PAVIMAX', cuerpo: avisos.join('. '), url_destino: 'https://marcoskatz-cmd.github.io/pavimax/cargar.html',
     clave_unica: 'stock-bajo-' + hoy, dias_unica: 1
   });
+}
+
+// === RECORDATORIO DIARIO DE PRODUCCIÓN (17 h) ===
+// Trigger diario a las 17 h (Google lo dispara entre 17:00 y ~17:15). Avisa por la app INGECO a los que
+// tienen el módulo del operario (PAVIMAX_OP) que carguen la producción del día. Lunes a sábado; si ya
+// hay producción cargada hoy, no molesta.
+function recordatorioProduccion() {
+  const tz = Session.getScriptTimeZone();
+  const ahora = new Date();
+  if (Utilities.formatDate(ahora, tz, 'u') === '7') return;   // domingo
+  const hoy = Utilities.formatDate(ahora, tz, 'yyyy-MM-dd');
+  const sh = ss_().getSheetByName(SH_PRODUCCION);
+  if (sh && sh.getLastRow() >= 2) {
+    const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+    const iF = h.indexOf('fecha');
+    if (iF >= 0) {
+      const fechas = sh.getRange(2, iF + 1, sh.getLastRow() - 1, 1).getValues();
+      if (fechas.some(r => r[0] instanceof Date && Utilities.formatDate(r[0], tz, 'yyyy-MM-dd') === hoy)) return;
+    }
+  }
+  notificarAppIngeco_('PAVIMAX', {
+    destinatarios: [{ con_modulo: 'PAVIMAX_OP' }], tipo: 'aviso_general', prioridad: 'normal',
+    titulo: 'Cargá la producción de hoy',
+    cuerpo: 'Todavía no se cargó la producción del día en PAVIMAX. Entrá a Producción y cargá las bolsas, big bag y granel que se hicieron hoy.',
+    url_destino: 'https://marcoskatz-cmd.github.io/pavimax/#produccion', clave_unica: 'recordatorio-produccion-' + hoy, dias_unica: 1
+  });
+}
+
+// Correr UNA vez a mano en el editor (Ejecutar): pide el permiso de triggers y deja programado
+// recordatorioProduccion() todos los días a las 17 h. Idempotente (borra el anterior si existía).
+function instalarRecordatorioProduccion() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'recordatorioProduccion')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('recordatorioProduccion').timeBased().everyDays(1).atHour(17).nearMinute(0)
+    .inTimezone(Session.getScriptTimeZone()).create();
+  return 'Recordatorio de producción programado todos los días a las 17 h';
 }
