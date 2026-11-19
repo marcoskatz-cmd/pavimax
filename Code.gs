@@ -1364,8 +1364,11 @@ function sumVendidoPorProducto_() {   // { producto: cantidad } entregada
 function sumComprometidoPorProducto_() {
   const out = {};
   PRODUCTOS.forEach(k => { out[k] = { comprometido: 0, en_pallet: 0 }; });
+  // Solo tandas de pedidos que existen: si se borra la cabecera en PEDIDOS a mano, la tanda pendiente
+  // queda huérfana (no aparece en ningún pedido) y no debe comprometer stock (pasó con el pedido 19).
+  const pedidos = new Set(readSheet(SH_PEDIDOS).map(p => String(p.id)));
   readSheet(SH_PARCIALES)
-    .filter(p => String(p.estado || '').toLowerCase() === 'pendiente')
+    .filter(p => String(p.estado || '').toLowerCase() === 'pendiente' && pedidos.has(String(p.id_pedido)))
     .forEach(p => {
       const listo = !!String(p.listo_por || '').trim();
       PRODUCTOS.forEach(k => {
